@@ -24,6 +24,7 @@ struct M3UClient {
             throw PlaylistError.invalidURL
         }
         var request = URLRequest(url: url)
+        request.setValue("application/x-mpegURL, audio/x-mpegurl, text/plain, */*", forHTTPHeaderField: "Accept")
         request.timeoutInterval = 30
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -42,9 +43,16 @@ struct M3UClient {
             throw PlaylistError.invalidFormat("Unsupported text encoding")
         }
         let text = decoded.replacingOccurrences(of: "\u{FEFF}", with: "")
-        guard text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#EXTM3U") else {
+        // Some providers omit the EXTM3U header but include valid EXTINF records.
+        let hasEntries = text.components(separatedBy: .newlines).contains {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#EXTINF:")
+        }
+        guard hasEntries else {
             let mime = http.value(forHTTPHeaderField: "Content-Type")?.components(separatedBy: ";").first ?? "unknown"
-            throw PlaylistError.invalidFormat("Response is not an M3U playlist (HTTP 200, type: \(mime))")
+            let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let kind = body.hasPrefix("<") ? "HTML/XML response" :
+                body.hasPrefix("{") ? "JSON response" : "no EXTINF entries"
+            throw PlaylistError.invalidFormat("HTTP \(http.statusCode), type \(mime): \(kind). Use a full M3U playlist URL, not a single stream URL.")
         }
         var channels: [PlaylistChannel] = []
         var pendingName: String?
