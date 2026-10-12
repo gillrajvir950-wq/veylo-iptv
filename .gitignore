@@ -1,0 +1,11 @@
+.DS_Store
+*.xcuserstate
+xcuserdata/
+DerivedData/
+build/
+.env
+.env.*
+*.p12
+*.mobileprovision
+*.pem
+*.key
