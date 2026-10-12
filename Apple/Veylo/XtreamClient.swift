@@ -87,7 +87,7 @@ struct XtreamClient {
         base.append(path: "live")
         base.append(path: account.username)
         base.append(path: account.password)
-        base.append(path: "\\(stream.stream_id).m3u8")
+        base.append(path: "\(stream.stream_id).m3u8")
         return base
     }
 }
