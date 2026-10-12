@@ -15,5 +15,6 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.veylo.player
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads: YES
         TARGETED_DEVICE_FAMILY: '1,2'
         CODE_SIGNING_ALLOWED: NO
