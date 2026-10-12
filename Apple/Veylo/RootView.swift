@@ -9,7 +9,7 @@ struct RootView: View {
     @State private var channels: [LiveStream] = []
     @State private var loading = false
     @State private var errorMessage: String?
-    @State private var selectedPlayer: AVPlayer?
+    @State private var selectedChannel: SelectedChannel?
 
     private var version: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.1" }
 
@@ -53,14 +53,14 @@ struct RootView: View {
             }
             .toolbar {
                 if client != nil {
-                    Button("Sign out") { client = nil; channels = []; selectedPlayer = nil }
+                    Button("Sign out") { client = nil; channels = []; selectedChannel = nil }
                 }
             }
             .alert("Veylo", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
             } message: { Text(errorMessage ?? "") }
-            .sheet(item: Binding(get: { selectedPlayer.map(PlayerItem.init) }, set: { if $0 == nil { selectedPlayer?.pause(); selectedPlayer = nil } })) { item in
-                VideoPlayer(player: item.player).onAppear { item.player.play() }
+            .sheet(item: Binding(get: { selectedChannel }, set: { if $0 == nil { selectedChannel = nil } })) { item in
+                PlaybackView(channelName: item.name, url: item.url)
             }
         }
         .tint(.purple)
@@ -83,12 +83,13 @@ struct RootView: View {
     private func play(_ channel: LiveStream) {
         do {
             guard let client else { return }
-            selectedPlayer = AVPlayer(url: try client.hlsURL(for: channel))
+            selectedChannel = SelectedChannel(name: channel.name, url: try client.hlsURL(for: channel))
         } catch { errorMessage = error.localizedDescription }
     }
 }
 
-private struct PlayerItem: Identifiable {
-    let player: AVPlayer
-    var id: ObjectIdentifier { ObjectIdentifier(player) }
+private struct SelectedChannel: Identifiable {
+    let id = UUID()
+    let name: String
+    let url: URL
 }
