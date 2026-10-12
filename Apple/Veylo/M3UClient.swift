@@ -7,11 +7,11 @@ struct PlaylistChannel: Identifiable {
 }
 
 enum PlaylistError: LocalizedError {
-    case invalidURL, invalidFormat, empty
+    case invalidURL, invalidFormat(String), empty
     var errorDescription: String? {
         switch self {
         case .invalidURL: return "Enter a valid HTTP or HTTPS playlist URL."
-        case .invalidFormat: return "The URL did not return an M3U playlist."
+        case .invalidFormat(let detail): return "M3U import failed: \(detail)"
         case .empty: return "No playable channels found in the playlist."
         }
     }
@@ -26,11 +26,25 @@ struct M3UClient {
         var request = URLRequest(url: url)
         request.timeoutInterval = 30
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
-              data.count <= 20_000_000,
-              let text = String(data: data, encoding: .utf8),
-              text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#EXTM3U") else {
-            throw PlaylistError.invalidFormat
+        guard let http = response as? HTTPURLResponse else {
+            throw PlaylistError.invalidFormat("No HTTP response")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw PlaylistError.invalidFormat("HTTP status \(http.statusCode)")
+        }
+        guard data.count <= 20_000_000 else {
+            throw PlaylistError.invalidFormat("Playlist exceeds 20 MB")
+        }
+        let decoded = String(data: data, encoding: .utf8)
+            ?? String(data: data, encoding: .utf16)
+            ?? String(data: data, encoding: .isoLatin1)
+        guard let decoded else {
+            throw PlaylistError.invalidFormat("Unsupported text encoding")
+        }
+        let text = decoded.replacingOccurrences(of: "\u{FEFF}", with: "")
+        guard text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#EXTM3U") else {
+            let mime = http.value(forHTTPHeaderField: "Content-Type")?.components(separatedBy: ";").first ?? "unknown"
+            throw PlaylistError.invalidFormat("Response is not an M3U playlist (HTTP 200, type: \(mime))")
         }
         var channels: [PlaylistChannel] = []
         var pendingName: String?
@@ -39,7 +53,7 @@ struct M3UClient {
             if line.hasPrefix("#EXTINF:") {
                 pendingName = line.split(separator: ",", omittingEmptySubsequences: false).last.map(String.init)
             } else if !line.isEmpty && !line.hasPrefix("#") {
-                if let stream = URL(string: line),
+                if let stream = URL(string: line, relativeTo: url)?.absoluteURL,
                    ["http", "https"].contains(stream.scheme?.lowercased() ?? "") {
                     channels.append(PlaylistChannel(id: channels.count, name: pendingName ?? "Channel \(channels.count + 1)", url: stream))
                 }
