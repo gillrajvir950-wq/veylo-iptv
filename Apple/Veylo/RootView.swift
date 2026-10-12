@@ -11,6 +11,8 @@ struct RootView: View {
     @State private var errorMessage: String?
     @State private var selectedPlayer: AVPlayer?
 
+    private var version: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.1" }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -41,6 +43,14 @@ struct RootView: View {
                 }
             }
             .navigationTitle("Veylo")
+            .safeAreaInset(edge: .bottom) {
+                Text("Veylo v\(version)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity)
+                    .background(.regularMaterial)
+            }
             .toolbar {
                 if client != nil {
                     Button("Sign out") { client = nil; channels = []; selectedPlayer = nil }
