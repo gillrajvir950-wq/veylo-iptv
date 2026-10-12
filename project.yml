@@ -1,0 +1,19 @@
+name: Veylo
+options:
+  bundleIdPrefix: com.veylo
+settings:
+  base:
+    SWIFT_VERSION: 5.0
+    IPHONEOS_DEPLOYMENT_TARGET: 17.0
+targets:
+  Veylo:
+    type: application
+    platform: iOS
+    sources:
+      - Apple/Veylo
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.veylo.player
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: '1,2'
+        CODE_SIGNING_ALLOWED: NO
