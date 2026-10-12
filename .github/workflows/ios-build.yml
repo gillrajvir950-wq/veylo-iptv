@@ -18,3 +18,20 @@ jobs:
       - name: Compile for iOS Simulator
         run: |
           xcodebuild -project Veylo.xcodeproj -scheme Veylo -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+      - name: Build unsigned iPhone app
+        run: |
+          xcodebuild -project Veylo.xcodeproj -scheme Veylo -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/VeyloBuild" CODE_SIGNING_ALLOWED=NO build
+      - name: Package unsigned IPA for external signing
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/VeyloBuild/Build/Products/Release-iphoneos/Veylo.app"
+          test -d "$APP"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/Veylo-unsigned.ipa" Payload)
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Veylo-unsigned-IPA
+          path: Veylo-unsigned.ipa
+          retention-days: 7
