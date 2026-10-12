@@ -81,13 +81,13 @@ struct XtreamClient {
         try await fetch([LiveStream].self, action: "get_live_streams")
     }
 
-    func hlsURL(for stream: LiveStream) throws -> URL {
+    func streamURL(for stream: LiveStream, extension ext: String = "m3u8") throws -> URL {
         var base = account.server
         guard ["http", "https"].contains(base.scheme?.lowercased() ?? "") else { throw XtreamError.invalidServer }
         base.append(path: "live")
         base.append(path: account.username)
         base.append(path: account.password)
-        base.append(path: "\(stream.stream_id).m3u8")
+        base.append(path: "\(stream.stream_id).\(ext)")
         return base
     }
 }
