@@ -14,13 +14,13 @@ targets:
     info:
       path: Apple/Veylo/Info.plist
       properties:
-        CFBundleDisplayName: 'Veylo 0.0.2'
+        CFBundleDisplayName: 'Veylo 0.0.3'
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.veylo.player
-        MARKETING_VERSION: 0.0.2
-        CURRENT_PROJECT_VERSION: 2
+        MARKETING_VERSION: 0.0.3
+        CURRENT_PROJECT_VERSION: 3
         TARGETED_DEVICE_FAMILY: '1,2'
         CODE_SIGNING_ALLOWED: NO
