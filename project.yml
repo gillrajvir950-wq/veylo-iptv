@@ -11,13 +11,16 @@ targets:
     platform: iOS
     sources:
       - Apple/Veylo
+    info:
+      path: Apple/Veylo/Info.plist
+      properties:
+        CFBundleDisplayName: 'Veylo 0.0.2'
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.veylo.player
-        MARKETING_VERSION: 0.0.1
-        CURRENT_PROJECT_VERSION: 1
-        INFOPLIST_KEY_CFBundleDisplayName: 'Veylo 0.0.1'
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads: YES
+        MARKETING_VERSION: 0.0.2
+        CURRENT_PROJECT_VERSION: 2
         TARGETED_DEVICE_FAMILY: '1,2'
         CODE_SIGNING_ALLOWED: NO
