@@ -26,7 +26,7 @@ enum XtreamError: LocalizedError {
     case unauthorized
     var errorDescription: String? {
         switch self {
-        case .invalidServer: return "Use a valid HTTPS provider URL."
+        case .invalidServer: return "Use a valid HTTP or HTTPS provider URL."
         case .invalidResponse: return "Provider returned an unexpected response."
         case .unauthorized: return "The provider rejected these credentials."
         }
@@ -37,7 +37,7 @@ struct XtreamClient {
     let account: XtreamAccount
 
     private func endpoint(action: String? = nil) throws -> URL {
-        guard account.server.scheme?.lowercased() == "https",
+        guard ["http", "https"].contains(account.server.scheme?.lowercased() ?? ""),
               var components = URLComponents(url: account.server, resolvingAgainstBaseURL: false) else {
             throw XtreamError.invalidServer
         }
@@ -83,7 +83,7 @@ struct XtreamClient {
 
     func hlsURL(for stream: LiveStream) throws -> URL {
         var base = account.server
-        guard base.scheme?.lowercased() == "https" else { throw XtreamError.invalidServer }
+        guard ["http", "https"].contains(base.scheme?.lowercased() ?? "") else { throw XtreamError.invalidServer }
         base.append(path: "live")
         base.append(path: account.username)
         base.append(path: account.password)
