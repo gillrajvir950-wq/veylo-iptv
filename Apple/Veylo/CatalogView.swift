@@ -8,14 +8,13 @@ enum CatalogSelection: Hashable {
     case category(String, ChannelGenre)
 }
 
-/// TV-style channel browser.
-/// Home: Recently Watched, Favorites, then one shelf per type (Sports, PPV, News…).
+/// Apple TV–style channel browser.
+/// Home: featured carousel (Continue Watching / Live Now), Recently Watched, Favorites, one shelf per type.
 /// A type shows its provider categories as shelves; a category shows a grid.
 /// A country filter narrows everything to one country.
 struct CatalogView: View {
     let catalog: ChannelCatalog
     let version: String
-    let onPlay: (PlaylistChannel) -> Void
     let onSignOut: () -> Void
 
     // 0.0.15/0.0.16 favorites were list positions; they are migrated once to stable keys.
@@ -32,16 +31,23 @@ struct CatalogView: View {
     @State private var searchResults: [PlaylistChannel] = []
     @State private var resultsQuery: String?
     @State private var confirmSignOut = false
+    @State private var nowPlaying: NowPlaying?
     @FocusState private var searchFocused: Bool
 
     private static let topID = "catalog-top"
     private static let shelfLimit = 20
     private static let recentLimit = 20
+    private static let heroLimit = 5
 
     private struct SearchKey: Hashable {
         let query: String
         let selection: CatalogSelection
         let country: String
+    }
+
+    private struct NowPlaying: Identifiable {
+        let id = UUID()
+        let channel: PlaylistChannel
     }
 
     // MARK: Derived data
@@ -53,8 +59,6 @@ struct CatalogView: View {
     private var slice: CatalogSlice { catalog.slice(country: activeCountry?.info.code) }
 
     private var query: String { searchText.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-    private var favoriteSet: Set<String> { Set(favoriteKeys) }
 
     private var favoriteChannels: [PlaylistChannel] { favoriteKeys.compactMap(catalog.channel(forKey:)) }
 
@@ -70,6 +74,13 @@ struct CatalogView: View {
         }
     }
 
+    private func subtitle(for channel: PlaylistChannel, showsCategory: Bool) -> String? {
+        let flag = catalog.flag(for: channel)
+        guard showsCategory else { return flag }
+        let category = catalog.categoryTitle(for: channel)
+        return flag.map { "\($0)  \(category)" } ?? category
+    }
+
     // MARK: Body
 
     var body: some View {
@@ -83,11 +94,11 @@ struct CatalogView: View {
                         chipBar
                     }
                     Text("VEYLO  •  \(version)")
-                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .font(.system(size: 10, weight: .medium))
                         .tracking(2)
-                        .foregroundStyle(.white.opacity(0.25))
+                        .foregroundStyle(.white.opacity(0.22))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 28)
+                        .padding(.vertical, 30)
                 }
             }
             .scrollDismissesKeyboard(.immediately)
@@ -95,7 +106,7 @@ struct CatalogView: View {
                 withAnimation(.snappy) { proxy.scrollTo(Self.topID, anchor: .top) }
             }
         }
-        .background(VeyloBackdrop())
+        .background(VeyloBackdrop(glow: 0.6))
         .task(id: SearchKey(query: query, selection: selection, country: countryFilter)) { await runSearch() }
         .onAppear(perform: loadStoredLists)
         .sensoryFeedback(.selection, trigger: favoriteKeysRaw)
@@ -111,6 +122,15 @@ struct CatalogView: View {
         } message: {
             Text("Saved auto-login will be removed from this device.")
         }
+        .fullScreenCover(item: $nowPlaying) { item in
+            PlaybackView(
+                channel: item.channel,
+                subtitle: subtitle(for: item.channel, showsCategory: true) ?? "",
+                isFavorite: favoriteKeys.contains(item.channel.key),
+                onToggleFavorite: { toggleFavorite(item.channel) }
+            )
+            .preferredColorScheme(.dark)
+        }
     }
 
     // MARK: Header
@@ -121,20 +141,20 @@ struct CatalogView: View {
         case .favorites: return "Favorites"
         case .recent: return "Recently Watched"
         case .genre(let genre): return genre.title
-        case .category(let name, _): return name
+        case .category(let name, _): return VeyloText.pretty(name)
         }
     }
 
-    private var subtitle: String {
+    private var headerSubtitle: String {
         switch selection {
         case .home:
-            return "\(slice.channels.count.formatted()) channels · \(slice.groups.count.formatted()) categories"
+            return "\(slice.channels.count.formatted()) channels"
         case .favorites:
-            return "\(favoriteChannels.count.formatted()) saved channels"
+            return "\(favoriteChannels.count.formatted()) saved"
         case .recent:
             return "Your last \(recentChannels.count) channels"
         case .genre(let genre):
-            return "\(slice.channelCount(in: genre).formatted()) channels · \(slice.groups(in: genre).count) categories"
+            return "\(slice.channelCount(in: genre).formatted()) channels · \(slice.groups(in: genre).count) collections"
         case .category(let name, _):
             return "\(slice.channels(inCategory: name).count.formatted()) channels"
         }
@@ -142,50 +162,50 @@ struct CatalogView: View {
 
     private var searchPrompt: String {
         switch selection {
-        case .home: return "Search \(slice.channels.count.formatted()) channels"
+        case .home: return "Channels, sports, news…"
         case .favorites: return "Search favorites"
         case .recent: return "Search recently watched"
         case .genre(let genre): return "Search \(genre.title)"
-        case .category(let name, _): return "Search in \(name)"
+        case .category(let name, _): return "Search \(VeyloText.pretty(name))"
         }
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                VeyloWordmark(size: 22)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                VeyloWordmark(size: 20)
                 Spacer()
                 if !catalog.countries.isEmpty { countryMenu }
                 accountMenu
             }
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 if case .category(_, let genre) = selection {
                     Button { select(.genre(genre)) } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "chevron.left").font(.system(size: 12, weight: .bold))
+                        HStack(spacing: 3) {
+                            Image(systemName: "chevron.left").font(.system(size: 13, weight: .semibold))
                             Text(genre.title)
                         }
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(VeyloTheme.accent)
+                        .font(.system(size: 15))
+                        .foregroundStyle(VeyloTheme.textSecondary)
                     }
                     .buttonStyle(.plain)
                     .padding(.bottom, 2)
                 }
                 Text(title)
-                    .font(.system(size: 32, weight: .heavy, design: .rounded))
-                    .tracking(-0.8)
+                    .font(.system(size: 34, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .minimumScaleFactor(0.7)
-                Text(subtitle)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(VeyloTheme.textSecondary)
+                Text(headerSubtitle)
+                    .font(.system(size: 14))
+                    .foregroundStyle(VeyloTheme.textTertiary)
             }
+            .padding(.top, 6)
             searchField
         }
         .padding(.horizontal, 20)
-        .padding(.top, 8)
-        .padding(.bottom, 12)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
     }
 
     private var countryMenu: some View {
@@ -213,15 +233,15 @@ struct CatalogView: View {
                 Text(activeCountry?.info.flag ?? "🌍")
                 Text(activeCountry?.info.name ?? "All")
                     .lineLimit(1)
-                Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
+                Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(VeyloTheme.textSecondary)
             }
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: 14, weight: .medium))
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
-            .frame(height: 38)
+            .frame(height: 36)
             .frame(maxWidth: 170)
-            .background(VeyloTheme.surface, in: Capsule())
-            .overlay(Capsule().strokeBorder(activeCountry == nil ? VeyloTheme.stroke : VeyloTheme.accent.opacity(0.7)))
+            .background(VeyloTheme.fill, in: Capsule())
         }
         .accessibilityLabel("Country filter")
     }
@@ -234,20 +254,19 @@ struct CatalogView: View {
             }
         } label: {
             Image(systemName: "person.fill")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(.white.opacity(0.85))
-                .frame(width: 38, height: 38)
-                .background(VeyloTheme.surface, in: Circle())
-                .overlay(Circle().strokeBorder(VeyloTheme.stroke))
+                .frame(width: 36, height: 36)
+                .background(VeyloTheme.fill, in: Circle())
         }
         .accessibilityLabel("Account")
     }
 
     private var searchField: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(searchFocused ? VeyloTheme.accent : VeyloTheme.textTertiary)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(VeyloTheme.textTertiary)
             TextField("", text: $searchText, prompt: Text(searchPrompt).foregroundStyle(VeyloTheme.textTertiary))
                 .focused($searchFocused)
                 .textInputAutocapitalization(.never)
@@ -263,31 +282,25 @@ struct CatalogView: View {
                 .accessibilityLabel("Clear search")
             }
         }
-        .padding(.horizontal, 14)
-        .frame(height: 48)
-        .background(VeyloTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(searchFocused ? VeyloTheme.accent.opacity(0.7) : VeyloTheme.stroke)
-        )
+        .padding(.horizontal, 12)
+        .frame(height: 40)
+        .background(VeyloTheme.fill, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
     }
 
-    // MARK: Type chips (pinned while scrolling)
+    // MARK: Type tabs (pinned while scrolling)
 
     private var chipBar: some View {
         ScrollViewReader { chipProxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 8) {
-                    chip("Home", icon: "house.fill", tint: nil, count: nil, target: .home)
-                    chip("Favorites", icon: "heart.fill", tint: .pink,
-                         count: favoriteKeys.isEmpty ? nil : favoriteChannels.count, target: .favorites)
+                LazyHStack(spacing: 6) {
+                    chip("Home", target: .home)
+                    chip("Favorites", target: .favorites)
                     ForEach(slice.genres) { genre in
-                        chip(genre.title, icon: genre.icon, tint: genre.tint,
-                             count: slice.channelCount(in: genre), target: .genre(genre))
+                        chip(genre.title, target: .genre(genre))
                             .id(genre)
                     }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 16)
                 .padding(.vertical, 10)
             }
             .onChange(of: selection) { _, newValue in
@@ -299,10 +312,7 @@ struct CatalogView: View {
         .background {
             Rectangle()
                 .fill(.ultraThinMaterial)
-                .overlay(VeyloTheme.background.opacity(0.78))
-                .overlay(alignment: .bottom) {
-                    Rectangle().fill(VeyloTheme.stroke).frame(height: 1)
-                }
+                .overlay(Color.black.opacity(0.55))
                 .ignoresSafeArea(edges: .top)
         }
     }
@@ -314,26 +324,17 @@ struct CatalogView: View {
         }
     }
 
-    private func chip(_ title: String, icon: String, tint: Color?, count: Int?, target: CatalogSelection) -> some View {
+    private func chip(_ title: String, target: CatalogSelection) -> some View {
         let active = selection == target || (Self.genre(of: selection).map { CatalogSelection.genre($0) == target } ?? false)
         return Button { select(target) } label: {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(active ? Color.black : (tint ?? Color.white.opacity(0.85)))
-                Text(title).lineLimit(1)
-                if let count {
-                    Text(count.formatted())
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(active ? Color.black.opacity(0.45) : VeyloTheme.textTertiary)
-                }
-            }
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(active ? Color.black : Color.white.opacity(0.85))
-            .padding(.horizontal, 14)
-            .frame(height: 36)
-            .background(active ? Color.white : VeyloTheme.surface, in: Capsule())
-            .overlay(Capsule().strokeBorder(active ? Color.clear : VeyloTheme.stroke))
+            Text(title)
+                .font(.system(size: 15, weight: active ? .semibold : .medium))
+                .foregroundStyle(active ? Color.black : Color.white.opacity(0.75))
+                .lineLimit(1)
+                .padding(.horizontal, 15)
+                .frame(height: 34)
+                .background(active ? Color.white : Color.clear, in: Capsule())
+                .contentShape(Capsule())
         }
         .buttonStyle(VeyloPressStyle())
     }
@@ -344,11 +345,11 @@ struct CatalogView: View {
         if !query.isEmpty {
             if resultsQuery != query {
                 ProgressView()
-                    .tint(VeyloTheme.accent)
+                    .tint(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 60)
             } else if searchResults.isEmpty {
-                emptyState(icon: "magnifyingglass", title: "No matches",
+                emptyState(icon: "magnifyingglass", title: "No results",
                            message: "Nothing found for “\(query)”.", actionTitle: "Clear search") {
                     searchText = ""
                 }
@@ -358,12 +359,13 @@ struct CatalogView: View {
         } else {
             switch selection {
             case .home:
-                homeShelves
+                homeContent
             case .favorites:
                 let favs = favoriteChannels
                 if favs.isEmpty {
                     emptyState(icon: "heart", title: "No favorites yet",
-                               message: "Tap the heart on any channel to keep it here.", actionTitle: "Browse channels") {
+                               message: "Press and hold any channel, or tap the heart in the player, to save it here.",
+                               actionTitle: "Browse channels") {
                         select(.home)
                     }
                 } else {
@@ -387,29 +389,96 @@ struct CatalogView: View {
         }
     }
 
-    private var homeShelves: some View {
-        LazyVStack(alignment: .leading, spacing: 30) {
+    private var homeContent: some View {
+        LazyVStack(alignment: .leading, spacing: 34) {
             let recents = recentChannels
-            if !recents.isEmpty {
-                shelf("Recently Watched", icon: "clock.arrow.circlepath", tint: VeyloTheme.accent,
-                      channels: Array(recents.prefix(Self.shelfLimit)), total: recents.count,
+            let featured = recents.isEmpty
+                ? slice.preview(of: slice.genres.contains(.sports) ? .sports : (slice.genres.first ?? .other), limit: Self.heroLimit)
+                : Array(recents.prefix(Self.heroLimit))
+            if !featured.isEmpty {
+                heroCarousel(featured, label: recents.isEmpty ? "LIVE NOW" : "CONTINUE WATCHING")
+            }
+            if recents.count > 1 {
+                shelf("Recently Watched", channels: Array(recents.prefix(Self.shelfLimit)),
                       target: .recent, showsCategory: true)
             }
             let favs = favoriteChannels
             if !favs.isEmpty {
-                shelf("Your Favorites", icon: "heart.fill", tint: .pink,
-                      channels: Array(favs.prefix(Self.shelfLimit)), total: favs.count,
+                shelf("Favorites", channels: Array(favs.prefix(Self.shelfLimit)),
                       target: .favorites, showsCategory: true)
             }
             ForEach(slice.genres) { genre in
-                shelf(genre.title, icon: genre.icon, tint: genre.tint,
-                      channels: slice.preview(of: genre, limit: Self.shelfLimit),
-                      total: slice.channelCount(in: genre),
+                shelf(genre.title, channels: slice.preview(of: genre, limit: Self.shelfLimit),
                       target: .genre(genre), showsCategory: true)
             }
         }
-        .padding(.top, 18)
+        .padding(.top, 14)
     }
+
+    // MARK: Featured carousel
+
+    private func heroCarousel(_ channels: [PlaylistChannel], label: String) -> some View {
+        TabView {
+            ForEach(channels) { channel in
+                heroCard(channel, label: label)
+                    .padding(.horizontal, 20)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: channels.count > 1 ? .always : .never))
+        .frame(height: 252)
+    }
+
+    private func heroCard(_ channel: PlaylistChannel, label: String) -> some View {
+        Button { play(channel) } label: {
+            ZStack(alignment: .bottomLeading) {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(VeyloTheme.cardGradient)
+                VStack {
+                    ChannelLogo(channel: channel, nameSize: 26)
+                        .frame(maxWidth: 220, maxHeight: 86)
+                        .padding(.top, 30)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+                LinearGradient(colors: [.clear, .black.opacity(0.85)], startPoint: .center, endPoint: .bottom)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(label)
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(1.2)
+                        .foregroundStyle(.white.opacity(0.65))
+                    Text(channel.title)
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    HStack(spacing: 12) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "play.fill").font(.system(size: 12, weight: .bold))
+                            Text("Play")
+                        }
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 18)
+                        .frame(height: 36)
+                        .background(.white, in: Capsule())
+                        if let detail = subtitle(for: channel, showsCategory: true) {
+                            Text(detail)
+                                .font(.system(size: 13))
+                                .foregroundStyle(.white.opacity(0.65))
+                                .lineLimit(1)
+                        }
+                    }
+                }
+                .padding(18)
+            }
+            .frame(height: 220)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(VeyloTheme.stroke))
+        }
+        .buttonStyle(VeyloPressStyle(scale: 0.98))
+        .contextMenu { channelMenu(channel) }
+    }
+
+    // MARK: Shelves and grids
 
     @ViewBuilder private func genreContent(_ genre: ChannelGenre) -> some View {
         let groups = slice.groups(in: genre)
@@ -419,45 +488,30 @@ struct CatalogView: View {
                 setCountry("")
             }
         } else if groups.count == 1, let only = groups.first {
-            channelGrid(only.channels, heading: only.name, showsCategory: false)
+            channelGrid(only.channels, heading: only.title, showsCategory: false)
         } else {
-            LazyVStack(alignment: .leading, spacing: 30) {
+            LazyVStack(alignment: .leading, spacing: 34) {
                 ForEach(groups) { group in
-                    shelf(group.name, icon: nil, tint: nil,
-                          channels: Array(group.channels.prefix(Self.shelfLimit)), total: group.channels.count,
+                    shelf(group.title, channels: Array(group.channels.prefix(Self.shelfLimit)),
                           target: .category(group.name, genre), showsCategory: false)
                 }
             }
-            .padding(.top, 18)
+            .padding(.top, 14)
         }
     }
 
-    private func shelf(_ title: String, icon: String?, tint: Color?, channels: [PlaylistChannel], total: Int,
-                       target: CatalogSelection, showsCategory: Bool) -> some View {
+    private func shelf(_ title: String, channels: [PlaylistChannel], target: CatalogSelection, showsCategory: Bool) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Button { select(target) } label: {
-                HStack(spacing: 8) {
-                    if let icon {
-                        Image(systemName: icon)
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(tint ?? VeyloTheme.accent)
-                            .frame(width: 28, height: 28)
-                            .background((tint ?? VeyloTheme.accent).opacity(0.16), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    }
+                HStack(spacing: 5) {
                     Text(title)
-                        .font(.system(size: 19, weight: .bold, design: .rounded))
+                        .font(.system(size: 21, weight: .bold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
-                    Text(total.formatted())
-                        .font(.system(size: 12, weight: .semibold))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(VeyloTheme.textTertiary)
-                    Spacer(minLength: 8)
-                    HStack(spacing: 3) {
-                        Text("See all")
-                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold))
-                    }
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(VeyloTheme.accent)
+                    Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
             }
@@ -465,13 +519,14 @@ struct CatalogView: View {
             .padding(.horizontal, 20)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: 12) {
+                LazyHStack(alignment: .top, spacing: 14) {
                     ForEach(channels) { channel in
                         tile(channel, showsCategory: showsCategory)
-                            .frame(width: 156)
+                            .frame(width: 168)
                     }
                 }
                 .padding(.horizontal, 20)
+                .padding(.bottom, 4)
             }
         }
     }
@@ -480,10 +535,10 @@ struct CatalogView: View {
         VStack(alignment: .leading, spacing: 14) {
             if let heading {
                 Text(heading)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(VeyloTheme.textSecondary)
+                    .font(.system(size: 14))
+                    .foregroundStyle(VeyloTheme.textTertiary)
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 230), spacing: 12)], alignment: .leading, spacing: 20) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 155, maximum: 240), spacing: 14)], alignment: .leading, spacing: 22) {
                 ForEach(channels) { channel in
                     tile(channel, showsCategory: showsCategory)
                 }
@@ -494,36 +549,35 @@ struct CatalogView: View {
     }
 
     private func tile(_ channel: PlaylistChannel, showsCategory: Bool) -> some View {
-        let isFavorite = favoriteSet.contains(channel.key)
-        return Button { play(channel) } label: {
-            ChannelTile(channel: channel, showsCategory: showsCategory, flag: catalog.flag(for: channel))
+        Button { play(channel) } label: {
+            ChannelTile(channel: channel, subtitle: subtitle(for: channel, showsCategory: showsCategory))
+                .overlay(alignment: .topTrailing) {
+                    if favoriteKeys.contains(channel.key) {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(6)
+                            .background(.black.opacity(0.5), in: Circle())
+                            .padding(6)
+                    }
+                }
         }
         .buttonStyle(VeyloPressStyle(scale: 0.95))
-        .overlay(alignment: .topTrailing) {
-            Button { toggleFavorite(channel) } label: {
-                Image(systemName: isFavorite ? "heart.fill" : "heart")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(isFavorite ? Color.pink : Color.white.opacity(0.85))
-                    .frame(width: 30, height: 30)
-                    .background(.black.opacity(0.45), in: Circle())
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .padding(6)
-            .accessibilityLabel(isFavorite ? "Remove favorite" : "Add favorite")
+        .contextMenu { channelMenu(channel) }
+    }
+
+    @ViewBuilder private func channelMenu(_ channel: PlaylistChannel) -> some View {
+        let isFavorite = favoriteKeys.contains(channel.key)
+        Button { play(channel) } label: {
+            Label("Play", systemImage: "play.fill")
         }
-        .contextMenu {
-            Button { play(channel) } label: {
-                Label("Play", systemImage: "play.fill")
-            }
-            Button { toggleFavorite(channel) } label: {
-                Label(isFavorite ? "Remove from Favorites" : "Add to Favorites",
-                      systemImage: isFavorite ? "heart.slash" : "heart")
-            }
-            if recentKeys.contains(channel.key) {
-                Button(role: .destructive) { removeRecent(channel) } label: {
-                    Label("Remove from Recently Watched", systemImage: "clock.badge.xmark")
-                }
+        Button { toggleFavorite(channel) } label: {
+            Label(isFavorite ? "Remove from Favorites" : "Add to Favorites",
+                  systemImage: isFavorite ? "heart.slash" : "heart")
+        }
+        if recentKeys.contains(channel.key) {
+            Button(role: .destructive) { removeRecent(channel) } label: {
+                Label("Remove from Recently Watched", systemImage: "clock.badge.xmark")
             }
         }
     }
@@ -531,21 +585,23 @@ struct CatalogView: View {
     private func emptyState(icon: String, title: String, message: String, actionTitle: String, action: @escaping () -> Void) -> some View {
         VStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.system(size: 28, weight: .semibold))
-                .foregroundStyle(VeyloTheme.accent)
-                .frame(width: 68, height: 68)
-                .background(VeyloTheme.accent.opacity(0.14), in: Circle())
+                .font(.system(size: 34, weight: .light))
+                .foregroundStyle(VeyloTheme.textSecondary)
+                .padding(.bottom, 4)
             Text(title)
-                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(.white)
             Text(message)
-                .font(.system(size: 14))
-                .foregroundStyle(VeyloTheme.textSecondary)
+                .font(.system(size: 15))
+                .foregroundStyle(VeyloTheme.textTertiary)
                 .multilineTextAlignment(.center)
             Button(actionTitle, action: action)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(VeyloTheme.accent)
-                .padding(.top, 4)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.black)
+                .padding(.horizontal, 18)
+                .frame(height: 36)
+                .background(.white, in: Capsule())
+                .padding(.top, 6)
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 40)
@@ -580,7 +636,7 @@ struct CatalogView: View {
             if recentKeys.count > Self.recentLimit { recentKeys.removeLast(recentKeys.count - Self.recentLimit) }
             recentKeysRaw = recentKeys.joined(separator: ",")
         }
-        onPlay(channel)
+        nowPlaying = NowPlaying(channel: channel)
     }
 
     private func removeRecent(_ channel: PlaylistChannel) {

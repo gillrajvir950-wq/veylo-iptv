@@ -257,6 +257,8 @@ struct ChannelCategoryGroup: Identifiable {
     let genre: ChannelGenre
     let channels: [PlaylistChannel]
     var id: String { name }
+    /// Readable provider category name ("SPORTS | CRICKET" → "Sports · Cricket").
+    var title: String { VeyloText.pretty(name) }
 }
 
 /// One view of the catalog: everything, or only one country's channels.
@@ -320,6 +322,7 @@ struct ChannelCatalog {
     private let everything: CatalogSlice
     private let slicesByCountry: [String: CatalogSlice]
     private let channelsByKey: [String: PlaylistChannel]
+    private let categoryTitles: [String: String]
 
     /// Categories follow `preferredOrder` (Xtream provider order), then first appearance in the
     /// list (M3U order). `Uncategorized` is always last.
@@ -338,9 +341,10 @@ struct ChannelCatalog {
             }
             if let match = ChannelClassifier.country(in: channel.name) {
                 channel.countryCode = match.info.code
-                channel.displayName = match.remainder
+                channel.displayName = VeyloText.pretty(match.remainder ?? channel.name)
             } else {
                 channel.countryCode = info.country?.code
+                channel.displayName = VeyloText.pretty(channel.name)
             }
             enriched.append(channel)
         }
@@ -384,6 +388,7 @@ struct ChannelCatalog {
         }
         slicesByCountry = slices
 
+        categoryTitles = Dictionary(uniqueKeysWithValues: ordered.map { ($0, VeyloText.pretty($0)) })
         channelsByKey = Dictionary(enriched.filter { !$0.key.isEmpty }.map { ($0.key, $0) },
                                    uniquingKeysWith: { first, _ in first })
     }
@@ -393,6 +398,10 @@ struct ChannelCatalog {
     }
 
     func channel(forKey key: String) -> PlaylistChannel? { channelsByKey[key] }
+
+    func categoryTitle(for channel: PlaylistChannel) -> String {
+        categoryTitles[channel.category] ?? VeyloText.pretty(channel.category)
+    }
 
     func flag(for channel: PlaylistChannel) -> String? {
         channel.countryCode.flatMap { ChannelClassifier.countriesByCode[$0]?.flag }

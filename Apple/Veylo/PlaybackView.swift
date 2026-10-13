@@ -5,8 +5,13 @@ import SwiftUI
 /// full screen resizes the same player instead of restarting the stream.
 struct PlaybackView: View {
     let channel: PlaylistChannel
+    /// "🇬🇧  Sports · Cricket" style line under the channel name.
+    var subtitle: String = ""
+    var isFavorite: Bool = false
+    var onToggleFavorite: () -> Void = {}
 
     @Environment(\.dismiss) private var dismiss
+    @State private var favorite: Bool?
     @State private var currentURL: URL?
     @State private var playbackID = UUID()
     @State private var paused = false
@@ -15,6 +20,12 @@ struct PlaybackView: View {
     @State private var controlsVisible = true
 
     private var url: URL { channel.url }
+    private var showsFavorite: Bool { favorite ?? isFavorite }
+
+    private func toggleFavorite() {
+        favorite = !showsFavorite
+        onToggleFavorite()
+    }
     private var isLive: Bool { status == "Live" }
     private var isLoading: Bool { status == "Loading channel…" }
     private var isFailed: Bool { status.hasPrefix("Playback failed") || status == "Stream ended" }
@@ -108,10 +119,10 @@ struct PlaybackView: View {
                 Button { reload() } label: {
                     Label("Reload", systemImage: "arrow.clockwise")
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.black)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 9)
-                        .background(VeyloTheme.accent, in: Capsule())
+                        .background(.white, in: Capsule())
                 }
                 .buttonStyle(VeyloPressStyle())
             }
@@ -135,8 +146,8 @@ struct PlaybackView: View {
                     .font(.system(size: 10, weight: .bold))
                     .tracking(1.6)
                     .foregroundStyle(VeyloTheme.textTertiary)
-                Text(channel.category)
-                    .font(.system(size: 12, weight: .semibold))
+                Text(subtitle)
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(VeyloTheme.textSecondary)
                     .lineLimit(1)
             }
@@ -151,12 +162,12 @@ struct PlaybackView: View {
     private var infoPanel: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack(spacing: 14) {
-                ChannelArtwork(channel: channel, cornerRadius: 16, monogramSize: 20, logoPadding: 10)
+                ChannelArtwork(channel: channel, cornerRadius: 14, nameSize: 11, logoPadding: 8)
                     .frame(width: 64, height: 64)
                 VStack(alignment: .leading, spacing: 6) {
                     statusBadge
                     Text(channel.title)
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .font(.system(size: 22, weight: .bold))
                         .foregroundStyle(.white)
                         .lineLimit(2)
                 }
@@ -167,7 +178,10 @@ struct PlaybackView: View {
                     paused.toggle()
                 }
                 controlTile("Reload", icon: "arrow.clockwise") { reload() }
-                controlTile("Full screen", icon: "arrow.up.left.and.arrow.down.right") { enterFullScreen() }
+                controlTile(showsFavorite ? "Saved" : "Favorite", icon: showsFavorite ? "heart.fill" : "heart") {
+                    toggleFavorite()
+                }
+                controlTile("Full", icon: "arrow.up.left.and.arrow.down.right") { enterFullScreen() }
             }
             if let alternativeURL {
                 Button { play(alternativeURL) } label: {
@@ -182,8 +196,7 @@ struct PlaybackView: View {
                     .foregroundStyle(VeyloTheme.textSecondary)
                     .padding(.horizontal, 16)
                     .frame(height: 50)
-                    .background(VeyloTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(VeyloTheme.stroke))
+                    .background(VeyloTheme.fill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .buttonStyle(VeyloPressStyle())
             }
@@ -221,17 +234,11 @@ struct PlaybackView: View {
                 Image(systemName: icon).font(.system(size: 19, weight: .semibold))
                 Text(title).font(.system(size: 12, weight: .semibold))
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(prominent ? Color.black : Color.white)
             .frame(maxWidth: .infinity)
-            .frame(height: 70)
-            .background {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(prominent ? AnyShapeStyle(VeyloTheme.accentGradient) : AnyShapeStyle(VeyloTheme.surface))
-            }
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(prominent ? Color.clear : VeyloTheme.stroke)
-            )
+            .frame(height: 68)
+            .background(prominent ? Color.white : VeyloTheme.fill,
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(VeyloPressStyle())
     }
@@ -256,11 +263,15 @@ struct PlaybackView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         statusBadge
                         Text(channel.title)
-                            .font(.system(size: 17, weight: .bold, design: .rounded))
+                            .font(.system(size: 17, weight: .bold))
                             .foregroundStyle(.white)
                             .lineLimit(1)
                     }
                     Spacer()
+                    circleButton(showsFavorite ? "heart.fill" : "heart",
+                                 label: showsFavorite ? "Remove favorite" : "Add favorite", dark: true) {
+                        toggleFavorite()
+                    }
                     if immersive {
                         circleButton("arrow.down.right.and.arrow.up.left", label: "Exit full screen", dark: true) {
                             withAnimation(.easeInOut(duration: 0.25)) { immersive = false }
@@ -295,8 +306,7 @@ struct PlaybackView: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 42, height: 42)
-                .background(dark ? AnyShapeStyle(Color.black.opacity(0.5)) : AnyShapeStyle(VeyloTheme.surface), in: Circle())
-                .overlay(Circle().strokeBorder(VeyloTheme.stroke))
+                .background(dark ? Color.black.opacity(0.5) : VeyloTheme.fill, in: Circle())
         }
         .buttonStyle(VeyloPressStyle(scale: 0.92))
         .accessibilityLabel(label)

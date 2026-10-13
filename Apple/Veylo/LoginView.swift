@@ -66,11 +66,11 @@ struct LoginView: View {
             VeyloBrandMark(size: 72)
             VStack(spacing: 6) {
                 Text("veylo")
-                    .font(.system(size: 42, weight: .black, design: .rounded))
-                    .tracking(-1.5)
+                    .font(.system(size: 40, weight: .bold, design: .rounded))
+                    .tracking(-1)
                     .foregroundStyle(.white)
                 Text("Your live TV, beautifully simple.")
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: 16))
                     .foregroundStyle(VeyloTheme.textSecondary)
             }
         }
@@ -87,8 +87,7 @@ struct LoginView: View {
             connectButton
         }
         .padding(18)
-        .background(VeyloTheme.surface.opacity(0.88), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(VeyloTheme.stroke))
+        .background(VeyloTheme.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private var modePicker: some View {
@@ -97,7 +96,7 @@ struct LoginView: View {
             modeOption("M3U Playlist", icon: "list.bullet.rectangle", value: 1)
         }
         .padding(4)
-        .background(VeyloTheme.background.opacity(0.75), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func modeOption(_ title: String, icon: String, value: Int) -> some View {
@@ -171,7 +170,7 @@ struct LoginView: View {
                 optionRow("MPEG-TS streams", detail: "Recommended for reliable playback", isOn: $useTS)
             }
             .padding(.horizontal, 14)
-            .background(VeyloTheme.background.opacity(0.5), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(VeyloTheme.fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .padding(.top, 4)
         }
     }
@@ -198,19 +197,18 @@ struct LoginView: View {
         Button(action: connect) {
             HStack(spacing: 10) {
                 if loading {
-                    ProgressView().tint(.white)
+                    ProgressView().tint(.black)
                     Text("Connecting…")
                 } else {
                     Text("Connect")
                     Image(systemName: "arrow.right")
                 }
             }
-            .font(.system(size: 17, weight: .bold, design: .rounded))
-            .foregroundStyle(.white)
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(.black)
             .frame(maxWidth: .infinity)
-            .frame(height: 56)
-            .background(VeyloTheme.accentGradient, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .shadow(color: VeyloTheme.accent.opacity(canConnect ? 0.4 : 0), radius: 18, y: 8)
+            .frame(height: 54)
+            .background(.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(VeyloPressStyle())
         .disabled(!canConnect)
@@ -231,17 +229,17 @@ struct LoginView: View {
         return HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(active ? VeyloTheme.accent : VeyloTheme.textTertiary)
+                .foregroundStyle(active ? Color.white : VeyloTheme.textTertiary)
                 .frame(width: 20)
             content()
                 .foregroundStyle(.white)
         }
         .padding(.horizontal, 14)
         .frame(height: 52)
-        .background(VeyloTheme.background.opacity(0.75), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(VeyloTheme.fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(active ? VeyloTheme.accent.opacity(0.8) : VeyloTheme.stroke, lineWidth: active ? 1.5 : 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(active ? Color.white.opacity(0.35) : Color.clear, lineWidth: 1)
         )
         .animation(.easeOut(duration: 0.15), value: active)
     }

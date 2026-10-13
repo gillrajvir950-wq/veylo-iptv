@@ -19,21 +19,15 @@ struct RootView: View {
     @State private var catalog = ChannelCatalog.empty
     @State private var loading = false
     @State private var errorMessage: String?
-    @State private var selectedChannel: SelectedChannel?
 
-    private let version = "0.0.17"
+    private let version = "0.0.18"
 
     var body: some View {
         NavigationStack {
             ZStack {
                 VeyloTheme.background.ignoresSafeArea()
                 if !channels.isEmpty {
-                    CatalogView(
-                        catalog: catalog,
-                        version: version,
-                        onPlay: { selectedChannel = SelectedChannel(channel: $0) },
-                        onSignOut: signOut
-                    )
+                    CatalogView(catalog: catalog, version: version, onSignOut: signOut)
                 } else if autoLoginInProgress {
                     ConnectingView()
                 } else {
@@ -56,10 +50,6 @@ struct RootView: View {
             .alert("Veylo", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
             } message: { Text(errorMessage ?? "") }
-            .fullScreenCover(item: $selectedChannel) { item in
-                PlaybackView(channel: item.channel)
-                    .preferredColorScheme(.dark)
-            }
         }
         .preferredColorScheme(.dark)
         .tint(VeyloTheme.accent)
@@ -100,7 +90,6 @@ struct RootView: View {
     }
 
     private func signOut() {
-        selectedChannel = nil
         channels = []
         catalog = .empty
         client = nil
@@ -169,9 +158,4 @@ struct RootView: View {
             }
         }
     }
-}
-
-private struct SelectedChannel: Identifiable {
-    let id = UUID()
-    let channel: PlaylistChannel
 }

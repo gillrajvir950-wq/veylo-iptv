@@ -4,13 +4,14 @@
 Continue development of **Veylo**, an iOS IPTV player for streams that the user is authorized to access. Do not rewrite or start a second app. Keep the existing GitHub repository (made public on 2026-10-13 for free macOS Actions minutes; never commit secrets) `gillrajvir950-wq/veylo-iptv` and the `main` branch as the source of truth. Speak to the user in conversational Hinglish (Roman Hindi).
 
 ## Current state (2026-10-13)
-- Current repository version: **0.0.17** (see `project.yml` and `.github/workflows/ios-build.yml`). 0.0.16 UI was installed and shown working by the user (14,710 channels, 157 categories); 0.0.17 device testing pending.
+- Current repository version: **0.0.18** (see `project.yml` and `.github/workflows/ios-build.yml`). 0.0.16 UI was installed and shown working by the user (14,710 channels, 157 categories); 0.0.17 build passed; 0.0.18 device testing pending.
 - **0.0.13 playback was confirmed working by the user** on iPhone after using MPEG-TS (`.ts`) streams by default. Earlier **0.0.9** confirmed video and audio through in-app MobileVLCKit.
 - Playback regressed in 0.0.11 and 0.0.12 when player lifecycle/format was changed; treat the working path as critical.
 - 0.0.14 introduced opt-in `Stay signed in` with password in iOS Keychain and auto-login.
 - 0.0.15 added Xtream live-category fetching, M3U `group-title` support, channel logos, search, favorites, and a premium dark live-TV view.
 - 0.0.16 full UI redesign (TV-app style): new login, category shelves + grids, pinned category chips, debounced search, redesigned player. Player now keeps one VLC surface across rotate/full screen (VLCPlaybackSurface itself unchanged) — verify on device that video resizes correctly when rotating.
 - 0.0.17 organizes the browser: categories classified into types (Sports, PPV & Events, Movie Channels, Entertainment, News, Kids, Documentary, Music, 4K, Religious, Other) by keyword rules in `ChannelClassifier`; country detected from channel-name prefixes ("UK:", "|IN|") or category words, with a country filter; "UK:" prefixes hidden in tiles (`displayName`). Home = Recently Watched, Favorites, one shelf per type. Favorites/recents now use stable `PlaylistChannel.key` ("x:<stream_id>" or "m:<sha256 of URL>"), with a one-time migration from old index favorites.
+- 0.0.18 Apple TV–style polish (user's chosen reference): true black, neutral cards with logo or channel name (no random tints/initials), `VeyloText.pretty` title-cases provider CAPS names for display only (search still uses raw names), featured carousel (Continue Watching / Live Now), white primary buttons, hearts moved to long-press menu and the player; player is now presented from CatalogView.
 - User asked for separate Movies and Series sections (provider VOD library: Xtream get_vod_streams/get_series) — planned next, not implemented.
 - End-user signing: GitHub Actions creates **unsigned** iOS IPA; user signs and sideloads separately with **Feather**. Never ask for the user's certificate/private key, provider username/password, playlist URL, or Keychain contents.
 

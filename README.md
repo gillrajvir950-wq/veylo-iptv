@@ -4,7 +4,7 @@ Veylo is an iOS SwiftUI IPTV player for **authorized** IPTV playlists and subscr
 
 ## Current status
 
-- Repository version: **0.0.17** — channels organized by type and country, Recently Watched, stable favorites (device testing pending).
+- Repository version: **0.0.18** — Apple TV–style look, featured carousel, channels organized by type and country, Recently Watched, stable favorites (device testing pending).
 - User-confirmed video **and audio playback**: Veylo 0.0.13 with Xtream MPEG-TS (`.ts`) and MobileVLCKit.
 - Xtream Codes login, live catalog and categories.
 - M3U playlists, including group-title categories and tvg-logo metadata.
