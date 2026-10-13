@@ -37,7 +37,6 @@ struct PlaybackView: View {
         }
         .preferredColorScheme(.dark)
         .statusBarHidden(immersive)
-        .onDisappear { paused = true }
     }
 
     private var videoSurface: some View {
@@ -47,7 +46,6 @@ struct PlaybackView: View {
             isPaused: paused,
             onStateChange: { newState in
                 status = newState
-                if newState == "Live" { paused = false }
             }
         )
         .background(.black)
