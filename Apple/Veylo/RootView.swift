@@ -19,7 +19,7 @@ struct RootView: View {
     @FocusState private var focused: Field?
 
     private enum Field: Hashable { case server, username, password, playlist }
-    private let version = "0.0.10"
+    private let version = "0.0.11"
     private let ink = Color(red: 0.045, green: 0.055, blue: 0.09)
     private let panel = Color(red: 0.095, green: 0.11, blue: 0.16)
     private let accent = Color(red: 0.62, green: 0.39, blue: 1)
@@ -35,6 +35,7 @@ struct RootView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .bottom, spacing: 0) {
+                if focused == nil {
                 Text("VEYLO  •  \(version)")
                     .font(.system(size: 10, weight: .medium, design: .rounded))
                     .tracking(2)
@@ -42,6 +43,7 @@ struct RootView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
                     .background(ink)
+                }
             }
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
@@ -52,7 +54,7 @@ struct RootView: View {
             .alert("Veylo", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
             } message: { Text(errorMessage ?? "") }
-            .sheet(item: $selectedChannel) { item in
+            .fullScreenCover(item: $selectedChannel) { item in
                 PlaybackView(channelName: item.name, url: item.url)
                     .preferredColorScheme(.dark)
             }
@@ -95,16 +97,16 @@ struct RootView: View {
 
     private var loginScreen: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 25) {
-                brand.padding(.top, 32)
+            VStack(alignment: .leading, spacing: 16) {
+                brand.padding(.top, 10)
                 VStack(alignment: .leading, spacing: 7) {
                     Text("Your screen. Your world.")
-                        .font(.system(size: 29, weight: .bold, design: .rounded))
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                     Text("Connect your provider to start watching.")
                         .font(.subheadline).foregroundStyle(.white.opacity(0.55))
                 }
-                VStack(alignment: .leading, spacing: 19) {
+                VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 0) {
                         modeButton("Xtream Codes", value: 0)
                         modeButton("M3U Playlist", value: 1)
@@ -157,13 +159,13 @@ struct RootView: View {
                 .font(.system(size: 14))
                 .tint(accent)
                 .foregroundStyle(.white.opacity(0.8))
-                .padding(20)
-                .background(panel, in: RoundedRectangle(cornerRadius: 24))
+                .padding(16)
+                .background(panel, in: RoundedRectangle(cornerRadius: 20))
                 Text("Use only streams you are authorized to access. HTTP connections are not encrypted.")
                     .font(.caption2).foregroundStyle(.white.opacity(0.35))
             }
             .padding(.horizontal, 22)
-            .padding(.bottom, 40)
+            .padding(.bottom, 18)
         }
         .scrollDismissesKeyboard(.interactively)
     }
@@ -191,7 +193,7 @@ struct RootView: View {
 
     private func entry<Content: View>(_ content: Content) -> some View {
         content
-            .padding(14)
+            .padding(11)
             .foregroundStyle(.white)
             .background(ink, in: RoundedRectangle(cornerRadius: 12))
     }
