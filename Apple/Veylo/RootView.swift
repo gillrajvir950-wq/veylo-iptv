@@ -511,7 +511,9 @@ struct RootView: View {
                 let ext = useTS ? "ts" : "m3u8"
                 // Category endpoint is optional: keep login and playback working if provider omits it.
                 let categories = (try? await api.categories()) ?? []
-                let categoryNames = Dictionary(uniqueKeysWithValues: categories.map { ($0.category_id, $0.category_name) })
+                let categoryNames = categories.reduce(into: [String: String]()) { result, category in
+                    result[category.category_id] = category.category_name
+                }
                 channels = try live.enumerated().map { index, channel in
                     PlaylistChannel(
                         id: index,
