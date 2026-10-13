@@ -4,6 +4,8 @@ struct RootView: View {
     @AppStorage("veylo.rememberLogin") private var rememberLogin = true
     @AppStorage("veylo.savedServer") private var savedServer = ""
     @AppStorage("veylo.savedUsername") private var savedUsername = ""
+    @AppStorage("veylo.staySignedIn") private var staySignedIn = false
+    @State private var attemptedAutoLogin = false
     @State private var mode = 0
     @State private var server = ""
     @State private var username = ""
@@ -19,7 +21,7 @@ struct RootView: View {
     @FocusState private var focused: Field?
 
     private enum Field: Hashable { case server, username, password, playlist }
-    private let version = "0.0.13"
+    private let version = "0.0.14"
     private let ink = Color(red: 0.045, green: 0.055, blue: 0.09)
     private let panel = Color(red: 0.095, green: 0.11, blue: 0.16)
     private let accent = Color(red: 0.62, green: 0.39, blue: 1)
@@ -67,12 +69,28 @@ struct RootView: View {
                 server = savedServer
                 username = savedUsername
             }
+            if !attemptedAutoLogin {
+                attemptedAutoLogin = true
+                if staySignedIn, let savedPassword = VeyloCredentials.readPassword(), !savedServer.isEmpty, !savedUsername.isEmpty {
+                    server = savedServer
+                    username = savedUsername
+                    password = savedPassword
+                    mode = 0
+                    Task { await connect(autoLogin: true) }
+                }
+            }
         }
         .onChange(of: rememberLogin) { _, enabled in
             if !enabled {
                 savedServer = ""
                 savedUsername = ""
+                staySignedIn = false
+                VeyloCredentials.deletePassword()
             }
+        }
+        .onChange(of: staySignedIn) { _, enabled in
+            if !enabled { VeyloCredentials.deletePassword() }
+            if enabled { rememberLogin = true }
         }
     }
 
@@ -130,6 +148,7 @@ struct RootView: View {
                         entry(SecureField("Enter password", text: $password)
                             .focused($focused, equals: .password))
                         Toggle("Remember server & username", isOn: $rememberLogin)
+                        Toggle("Stay signed in (secure Keychain)", isOn: $staySignedIn)
                         Toggle("Use MPEG-TS stream", isOn: $useTS)
                     } else {
                         inputLabel("PLAYLIST URL")
@@ -209,6 +228,8 @@ struct RootView: View {
                     selectedChannel = nil
                     password = ""
                     searchText = ""
+                    staySignedIn = false
+                    VeyloCredentials.deletePassword()
                 } label: {
                     Image(systemName: "rectangle.portrait.and.arrow.right")
                         .font(.system(size: 17, weight: .medium))
@@ -283,7 +304,7 @@ struct RootView: View {
         }
     }
 
-    @MainActor private func connect() async {
+    @MainActor private func connect(autoLogin: Bool = false) async {
         loading = true
         defer { loading = false }
         do {
@@ -299,14 +320,25 @@ struct RootView: View {
                     PlaylistChannel(id: index, name: channel.name, url: try api.streamURL(for: channel, extension: ext))
                 }
                 client = api
-                if rememberLogin {
+                if rememberLogin || staySignedIn {
                     savedServer = server.trimmingCharacters(in: .whitespacesAndNewlines)
                     savedUsername = username
+                }
+                if staySignedIn && !VeyloCredentials.savePassword(password) {
+                    staySignedIn = false
+                    errorMessage = "Login succeeded, but secure auto-login could not be enabled."
                 }
                 password = ""
             }
         } catch {
-            errorMessage = error.localizedDescription
+            if autoLogin {
+                staySignedIn = false
+                VeyloCredentials.deletePassword()
+                password = ""
+                errorMessage = "Auto-login failed. Please enter your password to reconnect. " + error.localizedDescription
+            } else {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }
