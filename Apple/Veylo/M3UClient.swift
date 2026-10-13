@@ -4,6 +4,8 @@ struct PlaylistChannel: Identifiable {
     let id: Int
     let name: String
     let url: URL
+    var category: String = "Uncategorized"
+    var logoURL: URL? = nil
 }
 
 enum PlaylistError: LocalizedError {
@@ -56,16 +58,30 @@ struct M3UClient {
         }
         var channels: [PlaylistChannel] = []
         var pendingName: String?
+        var pendingCategory = "Uncategorized"
+        var pendingLogo: URL?
+
+        func attribute(_ name: String, from line: String) -> String? {
+            let start = name + "=\""
+            guard let range = line.range(of: start) else { return nil }
+            let remainder = line[range.upperBound...]
+            guard let end = remainder.firstIndex(of: "\"") else { return nil }
+            return String(remainder[..<end])
+        }
         for rawLine in text.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
             if line.hasPrefix("#EXTINF:") {
                 pendingName = line.split(separator: ",", omittingEmptySubsequences: false).last.map(String.init)
+                pendingCategory = attribute("group-title", from: line).flatMap { $0.isEmpty ? nil : $0 } ?? "Uncategorized"
+                pendingLogo = attribute("tvg-logo", from: line).flatMap(URL.init(string:))
             } else if !line.isEmpty && !line.hasPrefix("#") {
                 if let stream = URL(string: line, relativeTo: url)?.absoluteURL,
                    ["http", "https"].contains(stream.scheme?.lowercased() ?? "") {
-                    channels.append(PlaylistChannel(id: channels.count, name: pendingName ?? "Channel \(channels.count + 1)", url: stream))
+                    channels.append(PlaylistChannel(id: channels.count, name: pendingName ?? "Channel \(channels.count + 1)", url: stream, category: pendingCategory, logoURL: pendingLogo))
                 }
                 pendingName = nil
+                pendingCategory = "Uncategorized"
+                pendingLogo = nil
             }
         }
         guard !channels.isEmpty else { throw PlaylistError.empty }
