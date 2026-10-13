@@ -1,172 +1,185 @@
 import SwiftUI
-import AVKit
 
 struct PlaybackView: View {
     let channelName: String
     let url: URL
 
     @Environment(\.dismiss) private var dismiss
-    @State private var player = AVPlayer()
-    @State private var useVLC = true
-    @State private var playbackID = UUID()
     @State private var currentURL: URL?
-    @State private var observation: NSKeyValueObservation?
-    @State private var status = "Starting live TV…"
-    @State private var errorText = ""
-    @State private var attempt = 0
-    private let background = Color(red: 0.045, green: 0.055, blue: 0.09)
+    @State private var playbackID = UUID()
+    @State private var paused = false
+    @State private var status = "Loading channel…"
+    @State private var immersive = false
+    @State private var controlsVisible = true
+
+    private let ink = Color(red: 0.045, green: 0.055, blue: 0.09)
     private let panel = Color(red: 0.095, green: 0.11, blue: 0.16)
     private let accent = Color(red: 0.62, green: 0.39, blue: 1)
 
     private var alternativeURL: URL? {
-        let ext = url.pathExtension.lowercased()
+        let candidate = currentURL ?? url
+        let ext = candidate.pathExtension.lowercased()
         guard ext == "ts" || ext == "m3u8" else { return nil }
-        return url.deletingPathExtension().appendingPathExtension(ext == "ts" ? "m3u8" : "ts")
+        return candidate.deletingPathExtension().appendingPathExtension(ext == "ts" ? "m3u8" : "ts")
     }
 
     var body: some View {
+        GeometryReader { geometry in
+            let landscape = geometry.size.width > geometry.size.height
+            ZStack {
+                ink.ignoresSafeArea()
+                if immersive || landscape {
+                    fullPlayer
+                } else {
+                    portraitPlayer
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+        .statusBarHidden(immersive)
+        .onDisappear { paused = true }
+    }
+
+    private var videoSurface: some View {
+        VLCPlaybackSurface(
+            url: currentURL ?? url,
+            playbackID: playbackID,
+            isPaused: paused,
+            onStateChange: { newState in
+                status = newState
+                if newState == "Live" { paused = false }
+            }
+        )
+        .background(.black)
+        .aspectRatio(16 / 9, contentMode: .fit)
+    }
+
+    private var fullPlayer: some View {
         ZStack {
-            background.ignoresSafeArea()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 19) {
+            Color.black.ignoresSafeArea()
+            videoSurface
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if controlsVisible {
+                VStack {
                     HStack {
-                        VStack(alignment: .leading, spacing: 5) {
-                            HStack(spacing: 7) {
-                                Circle().fill(.red).frame(width: 7, height: 7)
-                                Text("LIVE TV").tracking(1.5)
-                            }
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.6))
-                            Text(channelName)
-                                .font(.system(size: 25, weight: .bold, design: .rounded))
-                                .foregroundStyle(.white)
-                                .lineLimit(2)
+                        Button { immersive = false; dismiss() } label: {
+                            Image(systemName: "xmark")
+                                .font(.headline)
+                                .frame(width: 42, height: 42)
+                                .background(.black.opacity(0.65), in: Circle())
                         }
                         Spacer()
-                        Button { dismiss() } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 36, height: 36)
-                                .background(panel, in: Circle())
-                        }
-                    }
-                    Group {
-                        if useVLC {
-                            VLCPlaybackSurface(url: currentURL ?? url, playbackID: playbackID)
-                        } else {
-                            VideoPlayer(player: player)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 240)
-                    .background(.black)
-                    .clipShape(RoundedRectangle(cornerRadius: 18))
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack {
-                            Image(systemName: "play.rectangle.fill")
-                                .foregroundStyle(accent)
-                            Text("Veylo Player")
+                        Text(channelName)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        Spacer()
+                        Button {
+                            immersive = false
+                        } label: {
+                            Image(systemName: "arrow.down.right.and.arrow.up.left")
                                 .font(.headline)
-                            Spacer()
-                            Text(useVLC ? "VLC Engine" : "Apple Engine")
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(0.55))
+                                .frame(width: 42, height: 42)
+                                .background(.black.opacity(0.65), in: Circle())
                         }
-                        .foregroundStyle(.white)
-                        Picker("Engine", selection: $useVLC) {
-                            Text("Veylo").tag(true)
-                            Text("Apple").tag(false)
+                    }
+                    Spacer()
+                    HStack(spacing: 28) {
+                        Button { paused.toggle() } label: {
+                            Image(systemName: paused ? "play.fill" : "pause.fill")
+                                .font(.system(size: 27))
                         }
-                        .pickerStyle(.segmented)
-                        .onChange(of: useVLC) { _, enabled in
-                            if enabled {
-                                player.pause()
-                                observation = nil
-                                errorText = ""
-                                status = "Veylo player active"
-                                playbackID = UUID()
-                            } else {
-                                start(currentURL ?? url)
-                            }
-                        }
-                        HStack(spacing: 10) {
-                            Image(systemName: "dot.radiowaves.left.and.right")
-                                .foregroundStyle(accent)
-                            Text(status)
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.75))
-                                .lineLimit(2)
-                        }
-                        if !errorText.isEmpty && !useVLC {
-                            Text(errorText)
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                                .textSelection(.enabled)
-                        }
-                        HStack(spacing: 12) {
-                            Button { start(currentURL ?? url) } label: {
-                                Label("Reload", systemImage: "arrow.clockwise")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(accent)
-                            if let alternativeURL {
-                                Button {
-                                    start(alternativeURL)
-                                } label: {
-                                    Text("Try .\(alternativeURL.pathExtension)")
-                                        .frame(maxWidth: .infinity)
-                                }
-                                .buttonStyle(.bordered)
-                                .tint(.white)
-                            }
+                        Button { reload() } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 25))
                         }
                     }
                     .padding(18)
-                    .background(panel, in: RoundedRectangle(cornerRadius: 20))
+                    .background(.black.opacity(0.65), in: Capsule())
                 }
                 .padding(20)
+                .foregroundStyle(.white)
             }
         }
-        .onAppear { start(url) }
-        .onDisappear {
-            attempt += 1
-            observation = nil
-            player.pause()
-            player.replaceCurrentItem(with: nil)
-        }
+        .contentShape(Rectangle())
+        .onTapGesture { controlsVisible.toggle() }
     }
 
-    private func start(_ selectedURL: URL) {
-        attempt += 1
-        let currentAttempt = attempt
-        currentURL = selectedURL
-        observation = nil
-        player.pause()
-        errorText = ""
-        status = useVLC ? "Veylo player active" : "Opening stream…"
-        if useVLC {
-            playbackID = UUID()
-            return
-        }
-        let item = AVPlayerItem(url: selectedURL)
-        observation = item.observe(\.status, options: [.initial, .new]) { item, _ in
-            let state = item.status
-            let message = item.error?.localizedDescription
-            DispatchQueue.main.async {
-                guard currentAttempt == attempt else { return }
-                switch state {
-                case .readyToPlay:
-                    status = "Stream ready"
-                case .failed:
-                    status = "Apple playback failed"
-                    errorText = message ?? "Stream unavailable with Apple engine."
-                default: break
+    private var portraitPlayer: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(spacing: 12) {
+                Button { dismiss() } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.headline)
+                        .frame(width: 42, height: 42)
+                        .background(panel, in: Circle())
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("NOW PLAYING")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(2)
+                        .foregroundStyle(accent)
+                    Text(channelName)
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .lineLimit(2)
+                }
+                Spacer()
+                Button { immersive = true } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.headline)
+                        .frame(width: 42, height: 42)
+                        .background(panel, in: Circle())
+                }
+                .accessibilityLabel("Expand player")
+            }
+            .foregroundStyle(.white)
+
+            videoSurface
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+
+            HStack(spacing: 9) {
+                Circle()
+                    .fill(status == "Live" ? .green : accent)
+                    .frame(width: 8, height: 8)
+                Text(status)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.75))
+                Spacer()
+                Text("VEYLO PLAYER")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(1.4)
+                    .foregroundStyle(.white.opacity(0.4))
+            }
+
+            HStack(spacing: 12) {
+                Button { paused.toggle() } label: {
+                    Label(paused ? "Play" : "Pause", systemImage: paused ? "play.fill" : "pause.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                Button { reload() } label: {
+                    Label("Reload", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity)
                 }
             }
+            .buttonStyle(.borderedProminent)
+            .tint(accent)
+            if let alternativeURL {
+                Button("Try \(alternativeURL.pathExtension.uppercased()) stream") {
+                    play(alternativeURL)
+                }
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.55))
+            }
+            Spacer(minLength: 0)
         }
-        player.replaceCurrentItem(with: item)
-        player.play()
+        .padding(20)
+    }
+
+    private func reload() { play(currentURL ?? url) }
+
+    private func play(_ nextURL: URL) {
+        currentURL = nextURL
+        paused = false
+        status = "Loading channel…"
+        playbackID = UUID()
     }
 }
