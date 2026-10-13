@@ -4,16 +4,21 @@
 Continue development of **Veylo**, an iOS IPTV player for streams that the user is authorized to access. Do not rewrite or start a second app. Keep the existing private GitHub repository `gillrajvir950-wq/veylo-iptv` and the `main` branch as the source of truth. Speak to the user in conversational Hinglish (Roman Hindi).
 
 ## Current state (2026-10-13)
-- Current repository version: **0.0.15** (see `project.yml` and `.github/workflows/ios-build.yml`). Whether the latest version passes build and user acceptance testing is **not verified in this handoff**.
+- Current repository version: **0.0.16** (see `project.yml` and `.github/workflows/ios-build.yml`). Device testing of 0.0.16 is pending.
 - **0.0.13 playback was confirmed working by the user** on iPhone after using MPEG-TS (`.ts`) streams by default. Earlier **0.0.9** confirmed video and audio through in-app MobileVLCKit.
 - Playback regressed in 0.0.11 and 0.0.12 when player lifecycle/format was changed; treat the working path as critical.
 - 0.0.14 introduced opt-in `Stay signed in` with password in iOS Keychain and auto-login.
 - 0.0.15 added Xtream live-category fetching, M3U `group-title` support, channel logos, search, favorites, and a premium dark live-TV view.
+- 0.0.16 full UI redesign (TV-app style): new login, category shelves + grids, pinned category chips, debounced search, redesigned player. Player now keeps one VLC surface across rotate/full screen (VLCPlaybackSurface itself unchanged) — verify on device that video resizes correctly when rotating.
 - End-user signing: GitHub Actions creates **unsigned** iOS IPA; user signs and sideloads separately with **Feather**. Never ask for the user's certificate/private key, provider username/password, playlist URL, or Keychain contents.
 
 ## Project anatomy
 - `Apple/Veylo/VeyloApp.swift`: SwiftUI entry point.
-- `Apple/Veylo/RootView.swift`: Xtream/M3U login, auto-login, live channel catalog, categories, favorites, channel selection.
+- `Apple/Veylo/RootView.swift`: app state, Xtream/M3U connect logic, auto-login, Keychain toggles, sign-out, screen routing.
+- `Apple/Veylo/LoginView.swift`: login UI only (bindings into RootView).
+- `Apple/Veylo/CatalogView.swift`: channel browser UI — Home shelves, category/favorites/search grids, favorites storage (`veylo.favoriteChannelIDs`, still index based).
+- `Apple/Veylo/ChannelCatalog.swift`: channels grouped by category once at login (provider order, Uncategorized last).
+- `Apple/Veylo/VeyloTheme.swift`: colors, backdrop, brand mark, ChannelArtwork/ChannelTile, connecting splash.
 - `Apple/Veylo/XtreamClient.swift`: login, get_live_streams, get_live_categories, authenticated stream URL generation.
 - `Apple/Veylo/M3UClient.swift`: playlist downloading/parsing, group-title, tvg-logo; `PlaylistChannel` model.
 - `Apple/Veylo/VeyloCredentials.swift`: Keychain credential storage. Protect and do not log secrets.
@@ -30,7 +35,7 @@ Continue development of **Veylo**, an iOS IPTV player for streams that the user 
 4. A provider may not expose category APIs or logos; channel browsing should remain functional with `Uncategorized` fallback.
 5. Protect app behavior for both Xtream and M3U playlists. M3U categories come from `group-title`, logos from `tvg-logo`.
 6. Keep the native iPhone fullscreen launch storyboard `Apple/Veylo/LaunchScreen.storyboard` and app's `UILaunchStoryboardName` configuration.
-7. Every release must consistently bump version in `RootView.swift`, `project.yml` (marketing/build/display name), and workflow/IPA artifact paths.
+7. Every release must consistently bump version in `RootView.swift` (`version`), `project.yml` (marketing/build/display name), and workflow/IPA artifact paths.
 8. Avoid presenting green builds, successful playback, or fixes as verified until GitHub Actions logs or actual device tests confirm them.
 
 ## Build and release workflow
