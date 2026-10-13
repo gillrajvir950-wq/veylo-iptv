@@ -3,45 +3,82 @@ import UIKit
 #if canImport(MobileVLCKit)
 import MobileVLCKit
 
-/// Keeps the VLC instance alive with its UIKit rendering surface.
 struct VLCPlaybackSurface: UIViewRepresentable {
     let url: URL
     let playbackID: UUID
+    let isPaused: Bool
+    let onStateChange: (String) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
         view.backgroundColor = .black
-        context.coordinator.play(url: url, on: view, id: playbackID)
+        context.coordinator.configure(url: url, view: view, id: playbackID, paused: isPaused, report: onStateChange)
         return view
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
-        context.coordinator.play(url: url, on: uiView, id: playbackID)
+    func updateUIView(_ view: UIView, context: Context) {
+        context.coordinator.configure(url: url, view: view, id: playbackID, paused: isPaused, report: onStateChange)
     }
 
-    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+    static func dismantleUIView(_ view: UIView, coordinator: Coordinator) {
         coordinator.stop()
     }
 
-    final class Coordinator {
+    final class Coordinator: NSObject, VLCMediaPlayerDelegate {
         private let player = VLCMediaPlayer()
-        private var currentID: UUID?
+        private var activeID: UUID?
+        private var paused = false
+        private var reporter: ((String) -> Void)?
 
-        func play(url: URL, on view: UIView, id: UUID) {
+        override init() {
+            super.init()
+            player.delegate = self
+        }
+
+        func configure(url: URL, view: UIView, id: UUID, paused: Bool, report: @escaping (String) -> Void) {
+            reporter = report
             player.drawable = view
-            guard currentID != id else { return }
-            player.stop()
-            currentID = id
-            player.media = VLCMedia(url: url)
-            player.play()
+            if activeID != id {
+                player.stop()
+                activeID = id
+                self.paused = false
+                player.media = VLCMedia(url: url)
+                player.play()
+            }
+            if self.paused != paused {
+                self.paused = paused
+                if paused { player.pause() }
+                else { player.play() }
+            }
+        }
+
+        func mediaPlayerStateChanged(_ aNotification: Notification!) {
+            let newState = player.state
+            let text: String
+            switch newState {
+            case .opening, .buffering:
+                text = "Loading channel…"
+            case .playing:
+                text = "Live"
+            case .paused:
+                text = "Paused"
+            case .error:
+                text = "Playback error — try Reload"
+            case .ended, .stopped:
+                text = "Playback stopped"
+            default:
+                return
+            }
+            DispatchQueue.main.async { [weak self] in self?.reporter?(text) }
         }
 
         func stop() {
+            reporter = nil
             player.stop()
             player.drawable = nil
-            currentID = nil
+            activeID = nil
         }
     }
 }
@@ -49,6 +86,9 @@ struct VLCPlaybackSurface: UIViewRepresentable {
 struct VLCPlaybackSurface: View {
     let url: URL
     let playbackID: UUID
+    let isPaused: Bool
+    let onStateChange: (String) -> Void
+
     var body: some View {
         Text("VLC library unavailable in this build.")
             .foregroundStyle(.secondary)
