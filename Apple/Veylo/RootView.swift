@@ -19,7 +19,7 @@ struct RootView: View {
     @FocusState private var focused: Field?
 
     private enum Field: Hashable { case server, username, password, playlist }
-    private let version = "0.0.11"
+    private let version = "0.0.12"
     private let ink = Color(red: 0.045, green: 0.055, blue: 0.09)
     private let panel = Color(red: 0.095, green: 0.11, blue: 0.16)
     private let accent = Color(red: 0.62, green: 0.39, blue: 1)
@@ -33,6 +33,7 @@ struct RootView: View {
                 ink.ignoresSafeArea()
                 if channels.isEmpty { loginScreen } else { channelsScreen }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if focused == nil {
