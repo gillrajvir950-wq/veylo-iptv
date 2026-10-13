@@ -134,7 +134,7 @@ struct ChannelArtwork: View {
     }
 
     private var monogram: some View {
-        Text(Self.initials(for: channel.name))
+        Text(Self.initials(for: channel.title))
             .font(.system(size: monogramSize, weight: .heavy, design: .rounded))
             .foregroundStyle(.white.opacity(0.9))
             .lineLimit(1)
@@ -145,7 +145,7 @@ struct ChannelArtwork: View {
     /// Stable per-channel hue (String.hashValue changes every launch, so use djb2).
     private var tint: Color {
         var hash: UInt32 = 5381
-        for scalar in channel.name.unicodeScalars { hash = (hash &* 33) &+ scalar.value }
+        for scalar in channel.title.unicodeScalars { hash = (hash &* 33) &+ scalar.value }
         return Color(hue: Double(hash % 360) / 360, saturation: 0.6, brightness: 0.8)
     }
 
@@ -168,13 +168,25 @@ struct ChannelArtwork: View {
 struct ChannelTile: View {
     let channel: PlaylistChannel
     var showsCategory = true
+    /// Country flag shown on the artwork ("🇬🇧"), when known.
+    var flag: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ChannelArtwork(channel: channel)
                 .aspectRatio(16 / 10, contentMode: .fit)
+                .overlay(alignment: .topLeading) {
+                    if let flag {
+                        Text(flag)
+                            .font(.system(size: 13))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(.black.opacity(0.45), in: Capsule())
+                            .padding(7)
+                    }
+                }
             VStack(alignment: .leading, spacing: 2) {
-                Text(channel.name)
+                Text(channel.title)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)

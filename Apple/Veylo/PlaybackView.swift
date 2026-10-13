@@ -155,7 +155,7 @@ struct PlaybackView: View {
                     .frame(width: 64, height: 64)
                 VStack(alignment: .leading, spacing: 6) {
                     statusBadge
-                    Text(channel.name)
+                    Text(channel.title)
                         .font(.system(size: 22, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                         .lineLimit(2)
@@ -255,7 +255,7 @@ struct PlaybackView: View {
                     circleButton("xmark", label: "Close player", dark: true) { dismiss() }
                     VStack(alignment: .leading, spacing: 4) {
                         statusBadge
-                        Text(channel.name)
+                        Text(channel.title)
                             .font(.system(size: 17, weight: .bold, design: .rounded))
                             .foregroundStyle(.white)
                             .lineLimit(1)

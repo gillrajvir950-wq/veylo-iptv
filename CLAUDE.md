@@ -1,23 +1,25 @@
 # CLAUDE.md — Veylo project handoff
 
 ## Mission
-Continue development of **Veylo**, an iOS IPTV player for streams that the user is authorized to access. Do not rewrite or start a second app. Keep the existing private GitHub repository `gillrajvir950-wq/veylo-iptv` and the `main` branch as the source of truth. Speak to the user in conversational Hinglish (Roman Hindi).
+Continue development of **Veylo**, an iOS IPTV player for streams that the user is authorized to access. Do not rewrite or start a second app. Keep the existing GitHub repository (made public on 2026-10-13 for free macOS Actions minutes; never commit secrets) `gillrajvir950-wq/veylo-iptv` and the `main` branch as the source of truth. Speak to the user in conversational Hinglish (Roman Hindi).
 
 ## Current state (2026-10-13)
-- Current repository version: **0.0.16** (see `project.yml` and `.github/workflows/ios-build.yml`). Device testing of 0.0.16 is pending.
+- Current repository version: **0.0.17** (see `project.yml` and `.github/workflows/ios-build.yml`). 0.0.16 UI was installed and shown working by the user (14,710 channels, 157 categories); 0.0.17 device testing pending.
 - **0.0.13 playback was confirmed working by the user** on iPhone after using MPEG-TS (`.ts`) streams by default. Earlier **0.0.9** confirmed video and audio through in-app MobileVLCKit.
 - Playback regressed in 0.0.11 and 0.0.12 when player lifecycle/format was changed; treat the working path as critical.
 - 0.0.14 introduced opt-in `Stay signed in` with password in iOS Keychain and auto-login.
 - 0.0.15 added Xtream live-category fetching, M3U `group-title` support, channel logos, search, favorites, and a premium dark live-TV view.
 - 0.0.16 full UI redesign (TV-app style): new login, category shelves + grids, pinned category chips, debounced search, redesigned player. Player now keeps one VLC surface across rotate/full screen (VLCPlaybackSurface itself unchanged) — verify on device that video resizes correctly when rotating.
+- 0.0.17 organizes the browser: categories classified into types (Sports, PPV & Events, Movie Channels, Entertainment, News, Kids, Documentary, Music, 4K, Religious, Other) by keyword rules in `ChannelClassifier`; country detected from channel-name prefixes ("UK:", "|IN|") or category words, with a country filter; "UK:" prefixes hidden in tiles (`displayName`). Home = Recently Watched, Favorites, one shelf per type. Favorites/recents now use stable `PlaylistChannel.key` ("x:<stream_id>" or "m:<sha256 of URL>"), with a one-time migration from old index favorites.
+- User asked for separate Movies and Series sections (provider VOD library: Xtream get_vod_streams/get_series) — planned next, not implemented.
 - End-user signing: GitHub Actions creates **unsigned** iOS IPA; user signs and sideloads separately with **Feather**. Never ask for the user's certificate/private key, provider username/password, playlist URL, or Keychain contents.
 
 ## Project anatomy
 - `Apple/Veylo/VeyloApp.swift`: SwiftUI entry point.
 - `Apple/Veylo/RootView.swift`: app state, Xtream/M3U connect logic, auto-login, Keychain toggles, sign-out, screen routing.
 - `Apple/Veylo/LoginView.swift`: login UI only (bindings into RootView).
-- `Apple/Veylo/CatalogView.swift`: channel browser UI — Home shelves, category/favorites/search grids, favorites storage (`veylo.favoriteChannelIDs`, still index based).
-- `Apple/Veylo/ChannelCatalog.swift`: channels grouped by category once at login (provider order, Uncategorized last).
+- `Apple/Veylo/CatalogView.swift`: channel browser UI — Home shelves, category/favorites/search grids, favorites (`veylo.favoriteKeys`), recents (`veylo.recentKeys`), country filter.
+- `Apple/Veylo/ChannelCatalog.swift`: type/country classification and per-country slices, built once at login (provider category order, Uncategorized last).
 - `Apple/Veylo/VeyloTheme.swift`: colors, backdrop, brand mark, ChannelArtwork/ChannelTile, connecting splash.
 - `Apple/Veylo/XtreamClient.swift`: login, get_live_streams, get_live_categories, authenticated stream URL generation.
 - `Apple/Veylo/M3UClient.swift`: playlist downloading/parsing, group-title, tvg-logo; `PlaylistChannel` model.
@@ -52,7 +54,6 @@ For cloud build, push to `main` and inspect GitHub Actions workflow `ios-build.y
 ## Known risks / next development work
 - Validate the 0.0.15 catalog/category UI on a real iPhone with both Xtream and M3U.
 - Inspect build logs for any SwiftUI compilation or GitHub Actions failures after introducing category and favorites features.
-- Favorites currently use catalog indices; these may shift if the provider changes ordering. Migrate to stable per-channel keys without losing existing user favorites.
 - Confirm provider category loading latency and ensure channel list remains responsive with large catalogs (user reported ~14k channels). Use efficient filtering/rendering and avoid duplicate heavy work.
 - Verify that auto-login and sign-out work on relaunch and failures do not leak Keychain secrets.
 - Improve visual polish based on user screenshots, while leaving the verified stream handling intact.

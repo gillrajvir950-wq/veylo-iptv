@@ -6,6 +6,13 @@ struct PlaylistChannel: Identifiable {
     let url: URL
     var category: String = "Uncategorized"
     var logoURL: URL? = nil
+    /// Stable identity for favorites/recents, set at login: "x:<stream_id>" or "m:<url hash>".
+    /// Never contains credentials.
+    var key: String = ""
+    /// Detected country (ChannelCatalog), and the name without its "UK:" style prefix.
+    var countryCode: String? = nil
+    var displayName: String? = nil
+    var title: String { displayName ?? name }
 }
 
 enum PlaylistError: LocalizedError {

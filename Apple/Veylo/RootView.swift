@@ -1,4 +1,5 @@
 import SwiftUI
+import CryptoKit
 
 struct RootView: View {
     @AppStorage("veylo.rememberLogin") private var rememberLogin = true
@@ -20,7 +21,7 @@ struct RootView: View {
     @State private var errorMessage: String?
     @State private var selectedChannel: SelectedChannel?
 
-    private let version = "0.0.16"
+    private let version = "0.0.17"
 
     var body: some View {
         NavigationStack {
@@ -93,6 +94,11 @@ struct RootView: View {
         }
     }
 
+    /// Short one-way hash so M3U URLs (which may embed credentials) are never stored.
+    private static func hashKey(_ text: String) -> String {
+        SHA256.hash(data: Data(text.utf8)).prefix(10).map { String(format: "%02x", $0) }.joined()
+    }
+
     private func signOut() {
         selectedChannel = nil
         channels = []
@@ -111,7 +117,11 @@ struct RootView: View {
         }
         do {
             if mode == 1 {
-                let loaded = try await M3UClient.load(from: playlistURL)
+                let loaded = try await M3UClient.load(from: playlistURL).map { channel -> PlaylistChannel in
+                    var keyed = channel
+                    keyed.key = "m:" + Self.hashKey(channel.url.absoluteString)
+                    return keyed
+                }
                 catalog = ChannelCatalog(loaded)
                 channels = loaded
             } else {
@@ -131,7 +141,8 @@ struct RootView: View {
                         name: channel.name,
                         url: try api.streamURL(for: channel, extension: ext),
                         category: channel.category_id.flatMap { categoryNames[$0] } ?? "Uncategorized",
-                        logoURL: channel.stream_icon.flatMap(URL.init(string:))
+                        logoURL: channel.stream_icon.flatMap(URL.init(string:)),
+                        key: "x:\(channel.stream_id)"
                     )
                 }
                 catalog = ChannelCatalog(loaded, preferredOrder: categories.map(\.category_name))
