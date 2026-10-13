@@ -1,6 +1,9 @@
 import SwiftUI
 
 struct RootView: View {
+    @AppStorage("veylo.rememberLogin") private var rememberLogin = true
+    @AppStorage("veylo.savedServer") private var savedServer = ""
+    @AppStorage("veylo.savedUsername") private var savedUsername = ""
     @State private var mode = 0
     @State private var server = ""
     @State private var username = ""
@@ -15,7 +18,7 @@ struct RootView: View {
     @FocusState private var focused: Field?
 
     private enum Field: Hashable { case server, username, password, playlist }
-    private let version = "0.0.6"
+    private let version = "0.0.7"
 
     var body: some View {
         NavigationStack {
@@ -42,6 +45,7 @@ struct RootView: View {
                                     .focused($focused, equals: .username)
                                 SecureField("Password", text: $password)
                                     .focused($focused, equals: .password)
+                                Toggle("Remember server and username", isOn: $rememberLogin)
                                 Toggle("Try MPEG-TS (.ts) stream", isOn: $useTS)
                             } else {
                                 TextField("https://example.com/playlist.m3u", text: $playlistURL)
@@ -76,6 +80,7 @@ struct RootView: View {
                             channels = []
                             client = nil
                             selectedChannel = nil
+                            password = ""
                         }
                     }
                 }
@@ -103,6 +108,18 @@ struct RootView: View {
             }
         }
         .tint(.purple)
+        .onAppear {
+            if rememberLogin {
+                server = savedServer
+                username = savedUsername
+            }
+        }
+        .onChange(of: rememberLogin) { _, enabled in
+            if !enabled {
+                savedServer = ""
+                savedUsername = ""
+            }
+        }
     }
 
     @MainActor private func connect() async {
@@ -121,6 +138,10 @@ struct RootView: View {
                     PlaylistChannel(id: index, name: channel.name, url: try api.streamURL(for: channel, extension: ext))
                 }
                 client = api
+                if rememberLogin {
+                    savedServer = server.trimmingCharacters(in: .whitespacesAndNewlines)
+                    savedUsername = username
+                }
                 password = ""
             }
         } catch {
