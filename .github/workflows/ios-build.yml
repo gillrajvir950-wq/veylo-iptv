@@ -1,4 +1,4 @@
-name: Veylo 0.0.8 iOS Build
+name: Veylo 0.0.9 iOS Build
 
 on:
   push:
@@ -15,12 +15,16 @@ jobs:
         run: brew install xcodegen
       - name: Generate Xcode project
         run: xcodegen generate
+      - name: Install VLC dependency
+        run: |
+          sudo gem install cocoapods --no-document
+          pod install
       - name: Compile for iOS Simulator
         run: |
-          xcodebuild -project Veylo.xcodeproj -scheme Veylo -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -workspace Veylo.xcworkspace -scheme Veylo -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
       - name: Build unsigned iPhone app
         run: |
-          xcodebuild -project Veylo.xcodeproj -scheme Veylo -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/VeyloBuild" CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -workspace Veylo.xcworkspace -scheme Veylo -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/VeyloBuild" CODE_SIGNING_ALLOWED=NO build
       - name: Verify HTTP ATS configuration
         run: |
           set -euo pipefail
@@ -33,10 +37,10 @@ jobs:
           test -d "$APP"
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
-          (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/Veylo-0.0.8-unsigned.ipa" Payload)
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/Veylo-0.0.9-unsigned.ipa" Payload)
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Veylo-0.0.8-unsigned-IPA
-          path: Veylo-0.0.8-unsigned.ipa
+          name: Veylo-0.0.9-unsigned-IPA
+          path: Veylo-0.0.9-unsigned.ipa
           retention-days: 7
