@@ -18,7 +18,7 @@ struct RootView: View {
     @FocusState private var focused: Field?
 
     private enum Field: Hashable { case server, username, password, playlist }
-    private let version = "0.0.7"
+    private let version = "0.0.8"
 
     var body: some View {
         NavigationStack {
