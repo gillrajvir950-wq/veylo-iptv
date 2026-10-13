@@ -5,74 +5,130 @@ struct PlaybackView: View {
     let channelName: String
     let url: URL
 
+    @Environment(\.dismiss) private var dismiss
     @State private var player = AVPlayer()
     @State private var useVLC = true
-    @State private var vlcPlaybackID = UUID()
-    @State private var status = "Opening stream…"
-    @State private var details = ""
-    @State private var probeResult = ""
+    @State private var playbackID = UUID()
+    @State private var currentURL: URL?
     @State private var observation: NSKeyValueObservation?
-    @State private var activeURL: URL?
+    @State private var status = "Starting live TV…"
+    @State private var errorText = ""
     @State private var attempt = 0
+    private let background = Color(red: 0.045, green: 0.055, blue: 0.09)
+    private let panel = Color(red: 0.095, green: 0.11, blue: 0.16)
+    private let accent = Color(red: 0.62, green: 0.39, blue: 1)
 
     private var alternativeURL: URL? {
-        guard url.pathExtension.lowercased() == "m3u8" || url.pathExtension.lowercased() == "ts" else { return nil }
-        let ext = url.pathExtension.lowercased() == "m3u8" ? "ts" : "m3u8"
-        return url.deletingPathExtension().appendingPathExtension(ext)
+        let ext = url.pathExtension.lowercased()
+        guard ext == "ts" || ext == "m3u8" else { return nil }
+        return url.deletingPathExtension().appendingPathExtension(ext == "ts" ? "m3u8" : "ts")
     }
 
     var body: some View {
-        VStack(spacing: 14) {
-            Text(channelName).font(.headline).lineLimit(2)
-            Group {
-                if useVLC {
-                    VLCPlaybackSurface(url: activeURL ?? url, playbackID: vlcPlaybackID)
-                } else {
-                    VideoPlayer(player: player)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 280)
-            Picker("Playback engine", selection: $useVLC) {
-                Text("Veylo (VLC)").tag(true)
-                Text("Apple").tag(false)
-            }
-            .pickerStyle(.segmented)
-            .onChange(of: useVLC) { _, newValue in
-                if newValue {
-                    player.pause()
-                    observation = nil
-                    status = "Playing with Veylo engine"
-                } else {
-                    start(activeURL ?? url)
-                }
-            }
-            Text(status).font(.subheadline)
-            if !details.isEmpty {
-                Text(details)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-            if !probeResult.isEmpty {
-                Text(probeResult)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-            HStack {
-                Button("Retry") { start(url) }
-                    .buttonStyle(.borderedProminent)
-                if let alternate = alternativeURL {
-                    Button(alternate.pathExtension.uppercased() == "TS" ? "Try .ts" : "Try .m3u8") {
-                        start(alternate)
+        ZStack {
+            background.ignoresSafeArea()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 19) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack(spacing: 7) {
+                                Circle().fill(.red).frame(width: 7, height: 7)
+                                Text("LIVE TV").tracking(1.5)
+                            }
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.6))
+                            Text(channelName)
+                                .font(.system(size: 25, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                                .lineLimit(2)
+                        }
+                        Spacer()
+                        Button { dismiss() } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 36, height: 36)
+                                .background(panel, in: Circle())
+                        }
                     }
-                    .buttonStyle(.bordered)
+                    Group {
+                        if useVLC {
+                            VLCPlaybackSurface(url: currentURL ?? url, playbackID: playbackID)
+                        } else {
+                            VideoPlayer(player: player)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 240)
+                    .background(.black)
+                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack {
+                            Image(systemName: "play.rectangle.fill")
+                                .foregroundStyle(accent)
+                            Text("Veylo Player")
+                                .font(.headline)
+                            Spacer()
+                            Text(useVLC ? "VLC Engine" : "Apple Engine")
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(0.55))
+                        }
+                        .foregroundStyle(.white)
+                        Picker("Engine", selection: $useVLC) {
+                            Text("Veylo").tag(true)
+                            Text("Apple").tag(false)
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: useVLC) { _, enabled in
+                            if enabled {
+                                player.pause()
+                                observation = nil
+                                errorText = ""
+                                status = "Veylo player active"
+                                playbackID = UUID()
+                            } else {
+                                start(currentURL ?? url)
+                            }
+                        }
+                        HStack(spacing: 10) {
+                            Image(systemName: "dot.radiowaves.left.and.right")
+                                .foregroundStyle(accent)
+                            Text(status)
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.75))
+                                .lineLimit(2)
+                        }
+                        if !errorText.isEmpty && !useVLC {
+                            Text(errorText)
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .textSelection(.enabled)
+                        }
+                        HStack(spacing: 12) {
+                            Button { start(currentURL ?? url) } label: {
+                                Label("Reload", systemImage: "arrow.clockwise")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(accent)
+                            if let alternativeURL {
+                                Button {
+                                    start(alternativeURL)
+                                } label: {
+                                    Text("Try .\(alternativeURL.pathExtension)")
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(.white)
+                            }
+                        }
+                    }
+                    .padding(18)
+                    .background(panel, in: RoundedRectangle(cornerRadius: 20))
                 }
+                .padding(20)
             }
-            Spacer()
         }
-        .padding()
         .onAppear { start(url) }
         .onDisappear {
             attempt += 1
@@ -85,61 +141,32 @@ struct PlaybackView: View {
     private func start(_ selectedURL: URL) {
         attempt += 1
         let currentAttempt = attempt
-        activeURL = selectedURL
+        currentURL = selectedURL
         observation = nil
         player.pause()
-        vlcPlaybackID = UUID()
-        status = "Opening \(selectedURL.pathExtension.uppercased()) stream…"
-        details = ""
-        probeResult = ""
+        errorText = ""
+        status = useVLC ? "Veylo player active" : "Opening stream…"
+        if useVLC {
+            playbackID = UUID()
+            return
+        }
         let item = AVPlayerItem(url: selectedURL)
-        if !useVLC {
         observation = item.observe(\.status, options: [.initial, .new]) { item, _ in
             let state = item.status
             let message = item.error?.localizedDescription
-            let errorCode = (item.error as NSError?)?.code
             DispatchQueue.main.async {
                 guard currentAttempt == attempt else { return }
                 switch state {
                 case .readyToPlay:
                     status = "Stream ready"
                 case .failed:
-                    status = "Playback failed"
-                    let log = item.errorLog()?.events.last
-                    let serverCode = log?.errorStatusCode ?? 0
-                    var information = message ?? "Stream could not be decoded or accessed."
-                    if let errorCode { information += " (player code \(errorCode))" }
-                    if serverCode != 0 { information += " (stream HTTP \(serverCode))" }
-                    details = information
-                default:
-                    break
+                    status = "Apple playback failed"
+                    errorText = message ?? "Stream unavailable with Apple engine."
+                default: break
                 }
             }
         }
-        }
-        if !useVLC {
-            player.replaceCurrentItem(with: item)
-            player.play()
-        } else {
-            status = "Playing with Veylo engine"
-        }
-        Task {
-            // HEAD checks reachability without downloading a potentially endless live stream.
-            var request = URLRequest(url: selectedURL)
-            request.httpMethod = "HEAD"
-            request.timeoutInterval = 10
-            do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                guard currentAttempt == attempt else { return }
-                if let http = response as? HTTPURLResponse {
-                    probeResult = "Stream check: HTTP \(http.statusCode) (\(selectedURL.pathExtension.uppercased())). Some providers do not support HEAD."
-                } else {
-                    probeResult = "Stream check: no HTTP response."
-                }
-            } catch {
-                guard currentAttempt == attempt else { return }
-                probeResult = "Stream check unavailable: \(error.localizedDescription). Some providers block HEAD."
-            }
-        }
+        player.replaceCurrentItem(with: item)
+        player.play()
     }
 }
