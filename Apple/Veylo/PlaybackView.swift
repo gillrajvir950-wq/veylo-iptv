@@ -6,6 +6,8 @@ struct PlaybackView: View {
     let url: URL
 
     @State private var player = AVPlayer()
+    @State private var useVLC = true
+    @State private var vlcPlaybackID = UUID()
     @State private var status = "Opening stream…"
     @State private var details = ""
     @State private var probeResult = ""
@@ -22,9 +24,29 @@ struct PlaybackView: View {
     var body: some View {
         VStack(spacing: 14) {
             Text(channelName).font(.headline).lineLimit(2)
-            VideoPlayer(player: player)
-                .frame(maxWidth: .infinity)
-                .frame(height: 280)
+            Group {
+                if useVLC {
+                    VLCPlaybackSurface(url: activeURL ?? url, playbackID: vlcPlaybackID)
+                } else {
+                    VideoPlayer(player: player)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 280)
+            Picker("Playback engine", selection: $useVLC) {
+                Text("Veylo (VLC)").tag(true)
+                Text("Apple").tag(false)
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: useVLC) { _, newValue in
+                if newValue {
+                    player.pause()
+                    observation = nil
+                    status = "Playing with Veylo engine"
+                } else {
+                    start(activeURL ?? url)
+                }
+            }
             Text(status).font(.subheadline)
             if !details.isEmpty {
                 Text(details)
@@ -66,10 +88,12 @@ struct PlaybackView: View {
         activeURL = selectedURL
         observation = nil
         player.pause()
+        vlcPlaybackID = UUID()
         status = "Opening \(selectedURL.pathExtension.uppercased()) stream…"
         details = ""
         probeResult = ""
         let item = AVPlayerItem(url: selectedURL)
+        if !useVLC {
         observation = item.observe(\.status, options: [.initial, .new]) { item, _ in
             let state = item.status
             let message = item.error?.localizedDescription
@@ -92,8 +116,13 @@ struct PlaybackView: View {
                 }
             }
         }
-        player.replaceCurrentItem(with: item)
-        player.play()
+        }
+        if !useVLC {
+            player.replaceCurrentItem(with: item)
+            player.play()
+        } else {
+            status = "Playing with Veylo engine"
+        }
         Task {
             // HEAD checks reachability without downloading a potentially endless live stream.
             var request = URLRequest(url: selectedURL)
