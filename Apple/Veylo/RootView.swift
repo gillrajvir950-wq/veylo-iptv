@@ -14,12 +14,12 @@ struct RootView: View {
     @State private var loading = false
     @State private var errorMessage: String?
     @State private var selectedChannel: SelectedChannel?
-    @State private var useTS = false
+    @AppStorage("veylo.useMPEGTS") private var useTS = true
     @State private var searchText = ""
     @FocusState private var focused: Field?
 
     private enum Field: Hashable { case server, username, password, playlist }
-    private let version = "0.0.12"
+    private let version = "0.0.13"
     private let ink = Color(red: 0.045, green: 0.055, blue: 0.09)
     private let panel = Color(red: 0.095, green: 0.11, blue: 0.16)
     private let accent = Color(red: 0.62, green: 0.39, blue: 1)
