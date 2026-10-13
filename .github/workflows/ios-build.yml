@@ -1,4 +1,4 @@
-name: Veylo 0.0.11 iOS Build
+name: Veylo 0.0.12 iOS Build
 
 on:
   push:
@@ -30,6 +30,12 @@ jobs:
           set -euo pipefail
           APP="$RUNNER_TEMP/VeyloBuild/Build/Products/Release-iphoneos/Veylo.app"
           /usr/libexec/PlistBuddy -c "Print :NSAppTransportSecurity:NSAllowsArbitraryLoads" "$APP/Info.plist" | grep -qx true
+      - name: Verify native fullscreen launch screen
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/VeyloBuild/Build/Products/Release-iphoneos/Veylo.app"
+          /usr/libexec/PlistBuddy -c "Print :UILaunchStoryboardName" "$APP/Info.plist" | grep -qx LaunchScreen
+          test -f "$APP/LaunchScreen.storyboardc/Info.plist"
       - name: Package unsigned IPA for external signing
         run: |
           set -euo pipefail
@@ -37,10 +43,10 @@ jobs:
           test -d "$APP"
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
-          (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/Veylo-0.0.11-unsigned.ipa" Payload)
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/Veylo-0.0.12-unsigned.ipa" Payload)
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Veylo-0.0.11-unsigned-IPA
-          path: Veylo-0.0.11-unsigned.ipa
+          name: Veylo-0.0.12-unsigned-IPA
+          path: Veylo-0.0.12-unsigned.ipa
           retention-days: 7
