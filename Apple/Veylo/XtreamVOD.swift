@@ -1,0 +1,364 @@
+import Foundation
+
+// MARK: - Models
+
+struct VODItem: Identifiable, Hashable {
+    enum Kind: String, Hashable { case movie, series }
+
+    let id: Int
+    let kind: Kind
+    /// Raw provider name (used for search).
+    let name: String
+    /// Cleaned display title ("EN - THE BATMAN (2022)" → "The Batman").
+    let title: String
+    let posterURL: URL?
+    let categoryID: String
+    let rating: Double?
+    let year: String?
+    let added: Double
+    let containerExtension: String
+    let plot: String?
+    let genre: String?
+
+    /// Stable identity for My List, recents and resume progress.
+    var key: String { (kind == .movie ? "v:" : "s:") + String(id) }
+
+    var meta: String {
+        var parts: [String] = []
+        if let year { parts.append(year) }
+        if let rating { parts.append("★ " + String(format: "%.1f", rating)) }
+        return parts.joined(separator: "  ·  ")
+    }
+}
+
+struct VODCategory: Hashable {
+    let id: String
+    let name: String
+}
+
+struct MovieDetails {
+    let plot: String?
+    let genre: String?
+    let director: String?
+    let cast: String?
+    let released: String?
+    let duration: String?
+    let backdropURL: URL?
+    let posterURL: URL?
+    let rating: Double?
+}
+
+struct SeriesEpisode: Identifiable, Hashable {
+    let id: String
+    let season: Int
+    let number: Int
+    let title: String
+    let containerExtension: String
+    let plot: String?
+    let duration: String?
+    let imageURL: URL?
+
+    var key: String { "e:" + id }
+}
+
+struct SeriesDetails {
+    let plot: String?
+    let genre: String?
+    let cast: String?
+    let director: String?
+    let released: String?
+    let rating: Double?
+    let backdropURL: URL?
+    let posterURL: URL?
+    let episodes: [SeriesEpisode]
+
+    var seasons: [Int] { Array(Set(episodes.map(\.season))).sorted() }
+
+    func episodes(in season: Int) -> [SeriesEpisode] { episodes.filter { $0.season == season } }
+}
+
+// MARK: - API (movies and series). Live TV requests and URLs stay in XtreamClient.swift.
+
+extension XtreamClient {
+    func vodCategories() async throws -> [VODCategory] {
+        let data = try await vodData(action: "get_vod_categories")
+        return try await Task.detached(priority: .userInitiated) { try VODParser.categories(from: data) }.value
+    }
+
+    func movies() async throws -> [VODItem] {
+        let data = try await vodData(action: "get_vod_streams")
+        return try await Task.detached(priority: .userInitiated) { try VODParser.movies(from: data) }.value
+    }
+
+    func seriesCategories() async throws -> [VODCategory] {
+        let data = try await vodData(action: "get_series_categories")
+        return try await Task.detached(priority: .userInitiated) { try VODParser.categories(from: data) }.value
+    }
+
+    func seriesList() async throws -> [VODItem] {
+        let data = try await vodData(action: "get_series")
+        return try await Task.detached(priority: .userInitiated) { try VODParser.series(from: data) }.value
+    }
+
+    func movieDetails(id: Int) async throws -> MovieDetails {
+        let data = try await vodData(action: "get_vod_info", extra: [URLQueryItem(name: "vod_id", value: String(id))])
+        return try VODParser.movieDetails(from: data)
+    }
+
+    func seriesDetails(id: Int) async throws -> SeriesDetails {
+        let data = try await vodData(action: "get_series_info", extra: [URLQueryItem(name: "series_id", value: String(id))])
+        return try await Task.detached(priority: .userInitiated) { try VODParser.seriesDetails(from: data) }.value
+    }
+
+    func movieURL(for item: VODItem) throws -> URL {
+        try mediaURL(kind: "movie", id: String(item.id), ext: item.containerExtension)
+    }
+
+    func episodeURL(for episode: SeriesEpisode) throws -> URL {
+        try mediaURL(kind: "series", id: episode.id, ext: episode.containerExtension)
+    }
+
+    private func mediaURL(kind: String, id: String, ext: String) throws -> URL {
+        var base = account.server
+        guard ["http", "https"].contains(base.scheme?.lowercased() ?? "") else { throw XtreamError.invalidServer }
+        let safeExt = ext.isEmpty ? "mp4" : ext
+        base.append(path: kind)
+        base.append(path: account.username)
+        base.append(path: account.password)
+        base.append(path: "\(id).\(safeExt)")
+        return base
+    }
+
+    private func vodData(action: String, extra: [URLQueryItem] = []) async throws -> Data {
+        guard ["http", "https"].contains(account.server.scheme?.lowercased() ?? ""),
+              var components = URLComponents(url: account.server, resolvingAgainstBaseURL: false) else {
+            throw XtreamError.invalidServer
+        }
+        let trimmed = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        components.path = trimmed.isEmpty ? "/player_api.php" : "/\(trimmed)/player_api.php"
+        components.queryItems = [URLQueryItem(name: "username", value: account.username),
+                                 URLQueryItem(name: "password", value: account.password),
+                                 URLQueryItem(name: "action", value: action)] + extra
+        guard let url = components.url else { throw XtreamError.invalidServer }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 90
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw XtreamError.invalidResponse
+        }
+        return data
+    }
+}
+
+// MARK: - Lenient parsing (providers mix strings, numbers, nulls and empty arrays)
+
+enum VODParser {
+    static func categories(from data: Data) throws -> [VODCategory] {
+        let list = VODParser.objects(try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]))
+        return list.compactMap { entry in
+            guard let id = JSONValue.string(entry["category_id"]) else { return nil }
+            return VODCategory(id: id, name: JSONValue.string(entry["category_name"]) ?? "Other")
+        }
+    }
+
+    static func movies(from data: Data) throws -> [VODItem] {
+        let list = VODParser.objects(try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]))
+        var items: [VODItem] = []
+        items.reserveCapacity(list.count)
+        for entry in list {
+            guard let id = JSONValue.int(entry["stream_id"]), let name = JSONValue.string(entry["name"]) else { continue }
+            let cleaned = cleanTitle(name)
+            items.append(VODItem(
+                id: id,
+                kind: .movie,
+                name: name,
+                title: cleaned.title,
+                posterURL: JSONValue.url(entry["stream_icon"]),
+                categoryID: JSONValue.string(entry["category_id"]) ?? "",
+                rating: rating(entry["rating"]),
+                year: year(entry["year"]) ?? cleaned.year,
+                added: JSONValue.double(entry["added"]) ?? 0,
+                containerExtension: JSONValue.string(entry["container_extension"]) ?? "mp4",
+                plot: nil,
+                genre: nil
+            ))
+        }
+        return items
+    }
+
+    static func series(from data: Data) throws -> [VODItem] {
+        let list = VODParser.objects(try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]))
+        var items: [VODItem] = []
+        items.reserveCapacity(list.count)
+        for entry in list {
+            guard let id = JSONValue.int(entry["series_id"]), let name = JSONValue.string(entry["name"]) else { continue }
+            let cleaned = cleanTitle(name)
+            items.append(VODItem(
+                id: id,
+                kind: .series,
+                name: name,
+                title: cleaned.title,
+                posterURL: JSONValue.url(entry["cover"]),
+                categoryID: JSONValue.string(entry["category_id"]) ?? "",
+                rating: rating(entry["rating"]),
+                year: year(entry["releaseDate"]) ?? year(entry["release_date"]) ?? cleaned.year,
+                added: JSONValue.double(entry["last_modified"]) ?? 0,
+                containerExtension: "",
+                plot: JSONValue.string(entry["plot"]),
+                genre: JSONValue.string(entry["genre"])
+            ))
+        }
+        return items
+    }
+
+    static func movieDetails(from data: Data) throws -> MovieDetails {
+        guard let root = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any] else {
+            throw XtreamError.invalidResponse
+        }
+        let info = root["info"] as? [String: Any] ?? [:]
+        return MovieDetails(
+            plot: JSONValue.string(info["plot"]) ?? JSONValue.string(info["description"]),
+            genre: JSONValue.string(info["genre"]),
+            director: JSONValue.string(info["director"]),
+            cast: JSONValue.string(info["cast"]) ?? JSONValue.string(info["actors"]),
+            released: JSONValue.string(info["releasedate"]) ?? JSONValue.string(info["release_date"]),
+            duration: JSONValue.string(info["duration"]),
+            backdropURL: backdrop(info["backdrop_path"]),
+            posterURL: JSONValue.url(info["movie_image"]) ?? JSONValue.url(info["cover_big"]),
+            rating: rating(info["rating"])
+        )
+    }
+
+    static func seriesDetails(from data: Data) throws -> SeriesDetails {
+        guard let root = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any] else {
+            throw XtreamError.invalidResponse
+        }
+        let info = root["info"] as? [String: Any] ?? [:]
+        var episodes: [SeriesEpisode] = []
+
+        func add(_ raw: Any?, fallbackSeason: Int?) {
+            for entry in VODParser.objects(raw) {
+                guard let id = JSONValue.string(entry["id"]) else { continue }
+                let number = JSONValue.int(entry["episode_num"]) ?? (episodes.count + 1)
+                let details = entry["info"] as? [String: Any] ?? [:]
+                episodes.append(SeriesEpisode(
+                    id: id,
+                    season: JSONValue.int(entry["season"]) ?? fallbackSeason ?? 1,
+                    number: number,
+                    title: episodeTitle(JSONValue.string(entry["title"]), number: number),
+                    containerExtension: JSONValue.string(entry["container_extension"]) ?? "mp4",
+                    plot: JSONValue.string(details["plot"]),
+                    duration: JSONValue.string(details["duration"]),
+                    imageURL: JSONValue.url(details["movie_image"])
+                ))
+            }
+        }
+
+        if let bySeason = root["episodes"] as? [String: Any] {
+            for (season, list) in bySeason { add(list, fallbackSeason: Int(season)) }
+        } else if let lists = root["episodes"] as? [Any] {
+            for (index, list) in lists.enumerated() { add(list, fallbackSeason: index + 1) }
+        }
+        episodes.sort { ($0.season, $0.number) < ($1.season, $1.number) }
+
+        return SeriesDetails(
+            plot: JSONValue.string(info["plot"]),
+            genre: JSONValue.string(info["genre"]),
+            cast: JSONValue.string(info["cast"]),
+            director: JSONValue.string(info["director"]),
+            released: JSONValue.string(info["releaseDate"]) ?? JSONValue.string(info["release_date"]),
+            rating: rating(info["rating"]),
+            backdropURL: backdrop(info["backdrop_path"]),
+            posterURL: JSONValue.url(info["cover"]),
+            episodes: episodes
+        )
+    }
+
+    // MARK: Helpers
+
+    /// Array of JSON objects, skipping nulls or junk entries instead of failing the whole list.
+    static func objects(_ value: Any?) -> [[String: Any]] {
+        (value as? [Any])?.compactMap { $0 as? [String: Any] } ?? []
+    }
+
+    private static func rating(_ value: Any?) -> Double? {
+        guard let number = JSONValue.double(value), number > 0, number <= 10 else { return nil }
+        return number
+    }
+
+    private static func year(_ value: Any?) -> String? {
+        guard let text = JSONValue.string(value) else { return nil }
+        let digits = String(text.prefix(4))
+        guard digits.count == 4, digits.allSatisfy(\.isNumber), digits.hasPrefix("19") || digits.hasPrefix("20") else { return nil }
+        return digits
+    }
+
+    private static func backdrop(_ value: Any?) -> URL? {
+        if let list = value as? [Any] {
+            return list.lazy.compactMap { JSONValue.url($0) }.first
+        }
+        return JSONValue.url(value)
+    }
+
+    /// "Show - S01E02 - Pilot" → "Pilot"; empty → "Episode 2".
+    private static func episodeTitle(_ raw: String?, number: Int) -> String {
+        guard var title = raw else { return "Episode \(number)" }
+        if let range = title.range(of: #"[Ss]\d{1,2}\s?[Ee]\d{1,3}"#, options: .regularExpression) {
+            title = String(title[range.upperBound...])
+        }
+        let trimmed = title.trimmingCharacters(in: CharacterSet(charactersIn: " -–:|."))
+        return trimmed.isEmpty ? "Episode \(number)" : VeyloText.pretty(trimmed)
+    }
+
+    /// Removes language/country prefixes ("EN - ", "|IN| ", "UK: ") and a trailing year.
+    static func cleanTitle(_ raw: String) -> (title: String, year: String?) {
+        var name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let match = ChannelClassifier.country(in: name), let rest = match.remainder {
+            name = rest
+        }
+        if let range = name.range(of: #"^\s*[|\[(]\s*[A-Za-z0-9]{1,6}\s*[|\])]\s*"#, options: .regularExpression) {
+            name.removeSubrange(range)
+        }
+        if let range = name.range(of: #"^[A-Z0-9]{2,4}\s*[-|:]\s+"#, options: .regularExpression) {
+            name.removeSubrange(range)
+        }
+        var year: String?
+        if let range = name.range(of: #"[\s\-]*[(\[]?\b(19|20)\d{2}\b[)\]]?\s*$"#, options: .regularExpression),
+           range.lowerBound != name.startIndex {
+            year = String(name[range].filter(\.isNumber).suffix(4))
+            name.removeSubrange(range)
+        }
+        let cleaned = name.trimmingCharacters(in: CharacterSet(charactersIn: " -–:|"))
+        return (VeyloText.pretty(cleaned.isEmpty ? raw : cleaned), year)
+    }
+}
+
+enum JSONValue {
+    static func string(_ value: Any?) -> String? {
+        if let text = value as? String {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let number = value as? NSNumber { return number.stringValue }
+        return nil
+    }
+
+    static func int(_ value: Any?) -> Int? {
+        if let number = value as? NSNumber { return number.intValue }
+        if let text = value as? String { return Int(text.trimmingCharacters(in: .whitespaces)) }
+        return nil
+    }
+
+    static func double(_ value: Any?) -> Double? {
+        if let number = value as? NSNumber { return number.doubleValue }
+        if let text = value as? String { return Double(text.trimmingCharacters(in: .whitespaces)) }
+        return nil
+    }
+
+    static func url(_ value: Any?) -> URL? {
+        guard let text = string(value), text.lowercased().hasPrefix("http") else { return nil }
+        if let url = URL(string: text) { return url }
+        return text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed).flatMap(URL.init(string:))
+    }
+}

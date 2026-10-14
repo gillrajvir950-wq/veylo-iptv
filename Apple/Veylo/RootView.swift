@@ -20,14 +20,21 @@ struct RootView: View {
     @State private var loading = false
     @State private var errorMessage: String?
 
-    private let version = "0.0.18"
+    private let version = "0.0.19"
 
     var body: some View {
         NavigationStack {
             ZStack {
                 VeyloTheme.background.ignoresSafeArea()
                 if !channels.isEmpty {
-                    CatalogView(catalog: catalog, version: version, onSignOut: signOut)
+                    MainTabView(
+                        catalog: catalog,
+                        client: mode == 0 ? client : nil,
+                        version: version,
+                        account: accountSummary,
+                        useTS: $useTS,
+                        onSignOut: signOut
+                    )
                 } else if autoLoginInProgress {
                     ConnectingView()
                 } else {
@@ -82,6 +89,16 @@ struct RootView: View {
             if !enabled { VeyloCredentials.deletePassword() }
             if enabled { rememberLogin = true }
         }
+    }
+
+    private var accountSummary: AccountSummary {
+        if mode == 1 {
+            let host = URL(string: playlistURL.trimmingCharacters(in: .whitespacesAndNewlines))?.host
+            return AccountSummary(type: "M3U Playlist", host: host ?? "Playlist", username: nil, channelCount: channels.count)
+        }
+        let host = URL(string: server.trimmingCharacters(in: .whitespacesAndNewlines))?.host
+        return AccountSummary(type: "Xtream Codes", host: host ?? "Provider",
+                              username: username.isEmpty ? nil : username, channelCount: channels.count)
     }
 
     /// Short one-way hash so M3U URLs (which may embed credentials) are never stored.

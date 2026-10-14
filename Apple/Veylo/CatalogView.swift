@@ -15,7 +15,6 @@ enum CatalogSelection: Hashable {
 struct CatalogView: View {
     let catalog: ChannelCatalog
     let version: String
-    let onSignOut: () -> Void
 
     // 0.0.15/0.0.16 favorites were list positions; they are migrated once to stable keys.
     @AppStorage("veylo.favoriteChannelIDs") private var legacyFavoriteIDs = ""
@@ -30,7 +29,6 @@ struct CatalogView: View {
     @State private var searchText = ""
     @State private var searchResults: [PlaylistChannel] = []
     @State private var resultsQuery: String?
-    @State private var confirmSignOut = false
     @State private var nowPlaying: NowPlaying?
     @FocusState private var searchFocused: Bool
 
@@ -116,11 +114,13 @@ struct CatalogView: View {
                 Button("Done") { searchFocused = false }
             }
         }
-        .confirmationDialog("Sign out of Veylo?", isPresented: $confirmSignOut, titleVisibility: .visible) {
-            Button("Sign out", role: .destructive, action: onSignOut)
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Saved auto-login will be removed from this device.")
+        .onChange(of: favoriteKeysRaw) { _, raw in
+            let keys = Self.split(raw)
+            if keys != favoriteKeys { favoriteKeys = keys }
+        }
+        .onChange(of: recentKeysRaw) { _, raw in
+            let keys = Self.split(raw)
+            if keys != recentKeys { recentKeys = keys }
         }
         .fullScreenCover(item: $nowPlaying) { item in
             PlaybackView(
@@ -176,7 +176,6 @@ struct CatalogView: View {
                 VeyloWordmark(size: 20)
                 Spacer()
                 if !catalog.countries.isEmpty { countryMenu }
-                accountMenu
             }
             VStack(alignment: .leading, spacing: 3) {
                 if case .category(_, let genre) = selection {
@@ -244,22 +243,6 @@ struct CatalogView: View {
             .background(VeyloTheme.fill, in: Capsule())
         }
         .accessibilityLabel("Country filter")
-    }
-
-    private var accountMenu: some View {
-        Menu {
-            Text("\(catalog.all.count.formatted()) channels loaded")
-            Button(role: .destructive) { confirmSignOut = true } label: {
-                Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
-            }
-        } label: {
-            Image(systemName: "person.fill")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(.white.opacity(0.85))
-                .frame(width: 36, height: 36)
-                .background(VeyloTheme.fill, in: Circle())
-        }
-        .accessibilityLabel("Account")
     }
 
     private var searchField: some View {

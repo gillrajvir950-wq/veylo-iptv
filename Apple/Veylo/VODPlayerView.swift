@@ -1,0 +1,326 @@
+import SwiftUI
+import UIKit
+#if canImport(MobileVLCKit)
+import MobileVLCKit
+#endif
+
+/// Movie/episode playback engine. Separate from the live-TV VLCPlaybackSurface on purpose,
+/// so the verified live player stays untouched.
+final class VODPlayback: NSObject, ObservableObject {
+    enum Status: Equatable { case loading, playing, paused, ended, failed }
+
+    @Published private(set) var status: Status = .loading
+    @Published private(set) var time: Double = 0
+    @Published private(set) var duration: Double = 0
+
+    #if canImport(MobileVLCKit)
+    private let player = VLCMediaPlayer()
+    #endif
+    private var started = false
+
+    override init() {
+        super.init()
+        #if canImport(MobileVLCKit)
+        player.delegate = self
+        #endif
+    }
+
+    func attach(_ view: UIView) {
+        #if canImport(MobileVLCKit)
+        player.drawable = view
+        #endif
+    }
+
+    func start(url: URL, at seconds: Double) {
+        guard !started else { return }
+        started = true
+        #if canImport(MobileVLCKit)
+        let media = VLCMedia(url: url)
+        if seconds > 5 { media.addOption(":start-time=\(Int(seconds))") }
+        player.media = media
+        player.play()
+        #else
+        status = .failed
+        #endif
+    }
+
+    func togglePause() {
+        #if canImport(MobileVLCKit)
+        if player.isPlaying { player.pause() } else { player.play() }
+        #endif
+    }
+
+    func seek(to seconds: Double) {
+        #if canImport(MobileVLCKit)
+        guard duration > 0 else { return }
+        player.position = Float(min(max(seconds / duration, 0), 0.999))
+        time = seconds
+        #endif
+    }
+
+    func skip(_ seconds: Int32) {
+        #if canImport(MobileVLCKit)
+        if seconds >= 0 { player.jumpForward(seconds) } else { player.jumpBackward(-seconds) }
+        #endif
+    }
+
+    func retry(url: URL) {
+        #if canImport(MobileVLCKit)
+        let resume = time
+        player.stop()
+        status = .loading
+        let media = VLCMedia(url: url)
+        if resume > 5 { media.addOption(":start-time=\(Int(resume))") }
+        player.media = media
+        player.play()
+        #endif
+    }
+
+    func stop() {
+        #if canImport(MobileVLCKit)
+        player.delegate = nil
+        player.stop()
+        player.drawable = nil
+        #endif
+    }
+}
+
+#if canImport(MobileVLCKit)
+extension VODPlayback: VLCMediaPlayerDelegate {
+    func mediaPlayerStateChanged(_ notification: Notification!) {
+        let next: Status?
+        switch player.state {
+        case .opening, .buffering: next = player.isPlaying ? nil : .loading
+        case .playing: next = .playing
+        case .paused: next = .paused
+        case .ended: next = .ended
+        case .error: next = .failed
+        default: next = nil
+        }
+        guard let next else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.status = next
+        }
+    }
+
+    func mediaPlayerTimeChanged(_ notification: Notification!) {
+        let current = Double(player.time.intValue) / 1000
+        let length = Double(player.media?.length.intValue ?? 0) / 1000
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.time = max(0, current)
+            if length > 0 { self.duration = length }
+            if self.status == .loading { self.status = .playing }
+        }
+    }
+}
+#endif
+
+private struct VODVideoSurface: UIViewRepresentable {
+    let playback: VODPlayback
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .black
+        playback.attach(view)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
+}
+
+/// Full-screen movie/episode player with scrubber, ±10 s skip and resume.
+struct VODPlayerView: View {
+    let request: VODPlayRequest
+
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var playback = VODPlayback()
+    @State private var controlsVisible = true
+    @State private var scrubValue: Double?
+    @State private var lastSaved: Double = 0
+
+    private var displayTime: Double { scrubValue ?? playback.time }
+
+    private struct AutoHideKey: Hashable {
+        let visible: Bool
+        let status: VODPlayback.Status
+        let scrubbing: Bool
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            VODVideoSurface(playback: playback)
+                .ignoresSafeArea()
+            if playback.status == .loading {
+                ProgressView()
+                    .controlSize(.large)
+                    .tint(.white)
+                    .allowsHitTesting(false)
+            }
+            if playback.status == .failed || playback.status == .ended {
+                endOverlay
+            } else if controlsVisible {
+                controls.transition(.opacity)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
+        }
+        .task(id: AutoHideKey(visible: controlsVisible, status: playback.status, scrubbing: scrubValue != nil)) {
+            guard controlsVisible, playback.status == .playing, scrubValue == nil else { return }
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.3)) { controlsVisible = false }
+        }
+        .onAppear {
+            UIApplication.shared.isIdleTimerDisabled = true
+            playback.start(url: request.url, at: request.startAt)
+        }
+        .onDisappear {
+            saveProgress()
+            playback.stop()
+            UIApplication.shared.isIdleTimerDisabled = false
+        }
+        .onChange(of: playback.time) { _, time in
+            if abs(time - lastSaved) >= 15 { saveProgress() }
+        }
+        .onChange(of: playback.status) { _, status in
+            if status == .ended { VODProgressStore.save(key: request.progressKey, position: 0, duration: 0) }
+        }
+        .statusBarHidden(true)
+        .persistentSystemOverlays(.hidden)
+        .preferredColorScheme(.dark)
+    }
+
+    private var controls: some View {
+        ZStack {
+            VStack(spacing: 0) {
+                LinearGradient(colors: [.black.opacity(0.75), .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 140)
+                Spacer()
+                LinearGradient(colors: [.clear, .black.opacity(0.8)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 170)
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+
+            VStack {
+                HStack(spacing: 12) {
+                    roundButton("xmark", size: 40, label: "Close") { close() }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(request.title)
+                            .font(.system(size: 17, weight: .semibold))
+                            .lineLimit(1)
+                        if !request.subtitle.isEmpty {
+                            Text(request.subtitle)
+                                .font(.system(size: 13))
+                                .foregroundStyle(.white.opacity(0.6))
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer()
+                }
+                Spacer()
+                HStack(spacing: 44) {
+                    roundButton("gobackward.10", size: 56, label: "Back 10 seconds") { playback.skip(-10) }
+                    roundButton(playback.status == .paused ? "play.fill" : "pause.fill", size: 76,
+                                label: playback.status == .paused ? "Play" : "Pause") {
+                        playback.togglePause()
+                    }
+                    roundButton("goforward.10", size: 56, label: "Forward 10 seconds") { playback.skip(10) }
+                }
+                Spacer()
+                scrubber
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+        }
+    }
+
+    private var scrubber: some View {
+        VStack(spacing: 6) {
+            Slider(
+                value: Binding(get: { displayTime }, set: { scrubValue = $0 }),
+                in: 0...max(playback.duration, 1),
+                onEditingChanged: { editing in
+                    if !editing, let value = scrubValue {
+                        playback.seek(to: value)
+                        scrubValue = nil
+                    }
+                }
+            )
+            .tint(.white)
+            .disabled(playback.duration <= 0)
+            HStack {
+                Text(Self.clock(displayTime))
+                Spacer()
+                Text(playback.duration > 0 ? "-" + Self.clock(max(0, playback.duration - displayTime)) : "--:--")
+            }
+            .font(.system(size: 12, weight: .medium).monospacedDigit())
+            .foregroundStyle(.white.opacity(0.7))
+        }
+    }
+
+    private var endOverlay: some View {
+        VStack(spacing: 14) {
+            Image(systemName: playback.status == .ended ? "checkmark.circle" : "exclamationmark.triangle.fill")
+                .font(.system(size: 34))
+                .foregroundStyle(playback.status == .ended ? Color.white : Color.yellow)
+            Text(playback.status == .ended ? "Finished" : "Couldn’t play this title")
+                .font(.system(size: 18, weight: .semibold))
+            HStack(spacing: 12) {
+                if playback.status == .failed {
+                    Button { playback.retry(url: request.url) } label: {
+                        Text("Try again")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 20)
+                            .frame(height: 40)
+                            .background(.white, in: Capsule())
+                    }
+                }
+                Button { close() } label: {
+                    Text("Close")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 20)
+                        .frame(height: 40)
+                        .background(.white.opacity(0.15), in: Capsule())
+                }
+            }
+            .buttonStyle(VeyloPressStyle())
+        }
+        .foregroundStyle(.white)
+    }
+
+    private func roundButton(_ icon: String, size: CGFloat, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: size * 0.38, weight: .semibold))
+                .frame(width: size, height: size)
+                .background(.black.opacity(0.45), in: Circle())
+        }
+        .buttonStyle(VeyloPressStyle(scale: 0.9))
+        .accessibilityLabel(label)
+    }
+
+    private func close() {
+        saveProgress()
+        dismiss()
+    }
+
+    private func saveProgress() {
+        guard playback.duration > 0, playback.status != .ended else { return }
+        lastSaved = playback.time
+        VODProgressStore.save(key: request.progressKey, position: playback.time, duration: playback.duration)
+    }
+
+    static func clock(_ seconds: Double) -> String {
+        let total = Int(max(0, seconds))
+        let h = total / 3600, m = (total % 3600) / 60, s = total % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
+    }
+}
