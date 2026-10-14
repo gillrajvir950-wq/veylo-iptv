@@ -12,7 +12,7 @@ private struct DetailHeader: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             if let backdrop {
-                PosterImage(url: backdrop)
+                PosterImage(url: backdrop, maxPixel: 1200)
             } else {
                 PosterImage(url: poster)
                     .blur(radius: 40)

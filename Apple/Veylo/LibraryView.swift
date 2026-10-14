@@ -145,6 +145,7 @@ struct LibraryView: View {
                 .padding(.bottom, 24)
             }
             .scrollDismissesKeyboard(.immediately)
+            .refreshable { await library.load(kind, force: true) }
             .onChange(of: openGroupID) { _, _ in
                 withAnimation(.snappy) { proxy.scrollTo(Self.topID, anchor: .top) }
             }
@@ -184,9 +185,16 @@ struct LibraryView: View {
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .minimumScaleFactor(0.7)
-                Text("\((openGroup?.items.count ?? catalog.count(country: countryCode)).formatted()) titles")
-                    .font(.system(size: 14))
-                    .foregroundStyle(VeyloTheme.textTertiary)
+                HStack(spacing: 6) {
+                    Text("\((openGroup?.items.count ?? catalog.count(country: countryCode)).formatted()) titles")
+                    if library.isRefreshing(kind) {
+                        Text("·")
+                        ProgressView().controlSize(.mini).tint(VeyloTheme.textTertiary)
+                        Text("Updating")
+                    }
+                }
+                .font(.system(size: 14))
+                .foregroundStyle(VeyloTheme.textTertiary)
             }
             .padding(.top, 6)
             HStack(spacing: 8) {
@@ -495,18 +503,10 @@ struct LibraryView: View {
 /// Poster image filling its frame (no placeholder).
 struct PosterImage: View {
     let url: URL?
+    var maxPixel: CGFloat = 540
 
     var body: some View {
-        Color.clear.overlay {
-            if let url {
-                AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.2))) { phase in
-                    if let image = phase.image {
-                        image.resizable().scaledToFill()
-                    }
-                }
-            }
-        }
-        .clipped()
+        RemoteImage(url: url, maxPixel: maxPixel)
     }
 }
 
@@ -535,13 +535,7 @@ struct PosterArtwork: View {
                 .padding(10)
             }
             .overlay {
-                if let url {
-                    AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.2))) { phase in
-                        if let image = phase.image {
-                            image.resizable().scaledToFill()
-                        }
-                    }
-                }
+                RemoteImage(url: url, maxPixel: 540)
             }
             .clipShape(shape)
             .overlay(shape.strokeBorder(VeyloTheme.stroke))

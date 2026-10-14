@@ -75,6 +75,12 @@ struct MainTabView: View {
                 .ignoresSafeArea(.keyboard)
         }
         .sensoryFeedback(.selection, trigger: tab)
+        .task {
+            // Get Movies and Series ready in the background (instant when saved on the device).
+            try? await Task.sleep(for: .seconds(1.5))
+            await library.load(.movie)
+            await library.load(.series)
+        }
     }
 
     /// Hides the system tab bar and keeps content clear of the floating bar.
@@ -153,7 +159,7 @@ struct SettingsView: View {
     @State private var pending: PendingAction?
 
     private enum PendingAction: String, Identifiable {
-        case recents, progress, favorites, myList, signOut
+        case recents, progress, favorites, myList, cache, signOut
         var id: String { rawValue }
 
         var title: String {
@@ -162,6 +168,7 @@ struct SettingsView: View {
             case .progress: return "Clear Continue Watching?"
             case .favorites: return "Remove all favorite channels?"
             case .myList: return "Clear My List?"
+            case .cache: return "Clear saved posters and library data? They will download again when needed."
             case .signOut: return "Sign out of Veylo?"
             }
         }
@@ -211,6 +218,7 @@ struct SettingsView: View {
                 settingsButton("Clear Continue Watching", icon: "play.circle", action: .progress)
                 settingsButton("Remove Favorite Channels", icon: "heart", action: .favorites)
                 settingsButton("Clear My List", icon: "plus.circle", action: .myList)
+                settingsButton("Clear Image & Library Cache", icon: "internaldrive", action: .cache)
             } header: {
                 Text("Library")
             } footer: {
@@ -277,6 +285,9 @@ struct SettingsView: View {
         case .myList:
             movieListRaw = ""
             seriesListRaw = ""
+        case .cache:
+            VODLibraryCache.clear()
+            Task { await ImagePipeline.shared.clear() }
         case .signOut:
             onSignOut()
         }

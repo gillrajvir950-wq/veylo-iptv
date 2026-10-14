@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 // MARK: - Models
 
@@ -108,6 +109,19 @@ extension XtreamClient {
     func seriesDetails(id: Int) async throws -> SeriesDetails {
         let data = try await vodData(action: "get_series_info", extra: [URLQueryItem(name: "series_id", value: String(id))])
         return try await Task.detached(priority: .userInitiated) { try VODParser.seriesDetails(from: data) }.value
+    }
+
+    /// Raw library responses (items + categories), fetched in parallel so they can be saved to disk.
+    func libraryData(_ kind: VODItem.Kind) async throws -> (items: Data, categories: Data?) {
+        async let categories = try? vodData(action: kind == .movie ? "get_vod_categories" : "get_series_categories")
+        let items = try await vodData(action: kind == .movie ? "get_vod_streams" : "get_series")
+        return (items, await categories)
+    }
+
+    /// Identifies this provider account for on-device caches without containing the password.
+    var cacheIdentity: String {
+        let digest = SHA256.hash(data: Data("\(account.server.absoluteString)|\(account.username)".utf8))
+        return digest.prefix(12).map { String(format: "%02x", $0) }.joined()
     }
 
     func movieURL(for item: VODItem) throws -> URL {

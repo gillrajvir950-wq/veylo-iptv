@@ -93,7 +93,8 @@ struct VODCatalog {
 
 // MARK: - Library loading
 
-/// Loads the provider's movie and series libraries the first time each tab is opened.
+/// Loads the provider's movie and series libraries. A copy is saved on the device, so after the first
+/// download they open instantly; the saved copy is refreshed in the background when it is older than 12 hours.
 final class MediaLibrary: ObservableObject {
     enum Phase: Equatable {
         case idle, loading, loaded
@@ -102,42 +103,105 @@ final class MediaLibrary: ObservableObject {
 
     @Published private(set) var phases: [VODItem.Kind: Phase] = [:]
     @Published private(set) var catalogs: [VODItem.Kind: VODCatalog] = [:]
+    @Published private(set) var refreshing: Set<VODItem.Kind> = []
+    @Published private(set) var updated: [VODItem.Kind: Date] = [:]
     let client: XtreamClient?
+    private let account: String
 
     init(client: XtreamClient?) {
         self.client = client
+        account = client?.cacheIdentity ?? ""
     }
 
     func phase(_ kind: VODItem.Kind) -> Phase { phases[kind] ?? .idle }
 
     func catalog(_ kind: VODItem.Kind) -> VODCatalog { catalogs[kind] ?? .empty }
 
+    func isRefreshing(_ kind: VODItem.Kind) -> Bool { refreshing.contains(kind) }
+
     @MainActor func load(_ kind: VODItem.Kind, force: Bool = false) async {
         guard let client else { return }
-        switch phase(kind) {
-        case .loading: return
-        case .loaded where !force: return
-        default: break
-        }
-        phases[kind] = .loading
-        do {
-            let items: [VODItem]
-            let categories: [VODCategory]
-            if kind == .movie {
-                items = try await client.movies()
-                categories = (try? await client.vodCategories()) ?? []
-            } else {
-                items = try await client.seriesList()
-                categories = (try? await client.seriesCategories()) ?? []
+        if phase(kind) == .loading || refreshing.contains(kind) { return }
+        let account = self.account
+
+        if phase(kind) != .loaded {
+            phases[kind] = .loading
+            let saved = await Task.detached(priority: .userInitiated) { () -> (catalog: VODCatalog, date: Date)? in
+                guard let file = VODLibraryCache.read(kind, account: account),
+                      let catalog = try? VODLibraryCache.catalog(kind, items: file.items, categories: file.categories),
+                      !catalog.items.isEmpty else { return nil }
+                return (catalog, file.date)
+            }.value
+            if let saved {
+                catalogs[kind] = saved.catalog
+                updated[kind] = saved.date
+                phases[kind] = .loaded
+                if !force && Date().timeIntervalSince(saved.date) < VODLibraryCache.maxAge { return }
             }
-            let catalog = await Task.detached(priority: .userInitiated) {
-                VODCatalog(items: items, categories: categories)
+        } else if !force {
+            guard let date = updated[kind], Date().timeIntervalSince(date) >= VODLibraryCache.maxAge else { return }
+        }
+
+        let firstLoad = phase(kind) != .loaded
+        if !firstLoad { refreshing.insert(kind) }
+        defer { refreshing.remove(kind) }
+        do {
+            let data = try await client.libraryData(kind)
+            let catalog = try await Task.detached(priority: .userInitiated) { () -> VODCatalog in
+                let catalog = try VODLibraryCache.catalog(kind, items: data.items, categories: data.categories)
+                if !catalog.items.isEmpty {
+                    VODLibraryCache.write(kind, account: account, items: data.items, categories: data.categories)
+                }
+                return catalog
             }.value
             catalogs[kind] = catalog
+            updated[kind] = Date()
             phases[kind] = .loaded
         } catch {
-            phases[kind] = .failed(error.localizedDescription)
+            if firstLoad { phases[kind] = .failed(error.localizedDescription) }
         }
+    }
+}
+
+/// Raw provider responses saved in Caches (no credentials in file names or contents).
+enum VODLibraryCache {
+    static let maxAge: TimeInterval = 12 * 3600
+
+    private static var folder: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("veylo-library", isDirectory: true)
+    }
+
+    private static func files(_ kind: VODItem.Kind, account: String) -> (items: URL, categories: URL) {
+        let base = "\(account)-\(kind.rawValue)"
+        return (folder.appendingPathComponent(base + "-items.json"),
+                folder.appendingPathComponent(base + "-categories.json"))
+    }
+
+    static func read(_ kind: VODItem.Kind, account: String) -> (items: Data, categories: Data?, date: Date)? {
+        guard !account.isEmpty else { return nil }
+        let paths = files(kind, account: account)
+        guard let items = try? Data(contentsOf: paths.items), !items.isEmpty else { return nil }
+        let date = (try? paths.items.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+        return (items, try? Data(contentsOf: paths.categories), date)
+    }
+
+    static func write(_ kind: VODItem.Kind, account: String, items: Data, categories: Data?) {
+        guard !account.isEmpty else { return }
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let paths = files(kind, account: account)
+        try? items.write(to: paths.items, options: .atomic)
+        if let categories { try? categories.write(to: paths.categories, options: .atomic) }
+    }
+
+    static func catalog(_ kind: VODItem.Kind, items: Data, categories: Data?) throws -> VODCatalog {
+        let list = try (kind == .movie ? VODParser.movies(from: items) : VODParser.series(from: items))
+        let groups = categories.flatMap { try? VODParser.categories(from: $0) } ?? []
+        return VODCatalog(items: list, categories: groups)
+    }
+
+    static func clear() {
+        try? FileManager.default.removeItem(at: folder)
     }
 }
 

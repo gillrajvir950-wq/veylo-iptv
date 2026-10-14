@@ -160,15 +160,7 @@ struct ChannelLogo: View {
     var nameSize: CGFloat = 15
 
     var body: some View {
-        if let logo = channel.logoURL {
-            AsyncImage(url: logo, transaction: Transaction(animation: .easeOut(duration: 0.2))) { phase in
-                if let image = phase.image {
-                    image.resizable().scaledToFit()
-                } else {
-                    nameplate
-                }
-            }
-        } else {
+        RemoteImage(url: channel.logoURL, maxPixel: 360, contentMode: .fit) {
             nameplate
         }
     }
