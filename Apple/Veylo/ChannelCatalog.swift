@@ -330,7 +330,15 @@ struct ChannelCatalog {
         var categoryInfo: [String: (genre: ChannelGenre, country: CountryInfo?)] = [:]
         var enriched: [PlaylistChannel] = []
         enriched.reserveCapacity(channels.count)
+        // A logo shared by many channels is a provider placeholder (e.g. one "4K ULTRA HD" image),
+        // so those channels show their own name instead.
+        var logoUse: [URL: Int] = [:]
+        for channel in channels {
+            if let logo = channel.logoURL { logoUse[logo, default: 0] += 1 }
+        }
         for var channel in channels {
+            if let logo = channel.logoURL, (logoUse[logo] ?? 0) >= 6 { channel.logoURL = nil }
+            channel.quality = VeyloText.quality(channel.name)
             let info: (genre: ChannelGenre, country: CountryInfo?)
             if let cached = categoryInfo[channel.category] {
                 info = cached
@@ -341,10 +349,10 @@ struct ChannelCatalog {
             }
             if let match = ChannelClassifier.country(in: channel.name) {
                 channel.countryCode = match.info.code
-                channel.displayName = VeyloText.pretty(match.remainder ?? channel.name)
+                channel.displayName = VeyloText.channelTitle(match.remainder ?? channel.name)
             } else {
                 channel.countryCode = info.country?.code
-                channel.displayName = VeyloText.pretty(channel.name)
+                channel.displayName = VeyloText.channelTitle(channel.name)
             }
             enriched.append(channel)
         }

@@ -123,9 +123,68 @@ enum VeyloText {
     /// Two-letter words that read as words, not codes (country codes like IN/IT/NO stay upper).
     private static let smallWords: Set<String> = ["OF", "ON", "TO", "BY", "OR", "AN", "IS", "MY", "GO", "DO", "SO", "WE", "ME", "HE"]
 
+    /// Provider names often use superscript letters ("HINDI ᴴᴰ"); turn them into normal text.
+    private static let superscripts: [Character: Character] = [
+        "ᴬ": "A", "ᴮ": "B", "ᶜ": "C", "ᴰ": "D", "ᴱ": "E", "ᶠ": "F", "ᴳ": "G", "ᴴ": "H", "ᴵ": "I", "ᴶ": "J",
+        "ᴷ": "K", "ᴸ": "L", "ᴹ": "M", "ᴺ": "N", "ᴼ": "O", "ᴾ": "P", "ᴿ": "R", "ˢ": "S", "ᵀ": "T", "ᵁ": "U",
+        "ⱽ": "V", "ᵂ": "W", "ˣ": "X", "ʸ": "Y", "ᶻ": "Z", "ʰ": "H", "ᵈ": "D",
+        "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9"
+    ]
+
+    static func normalize(_ raw: String) -> String {
+        var output = ""
+        var inSuperscript = false
+        for character in raw {
+            if let base = superscripts[character] {
+                if !inSuperscript { output.append(" ") }
+                output.append(base)
+                inSuperscript = true
+            } else {
+                output.append(character)
+                inSuperscript = false
+            }
+        }
+        return output
+    }
+
+    private static let qualityPattern = #"(?i)[\(\[]?\b(4K|8K|UHD|FHD|HD|SD|HEVC|H\.?26[45]|2160P|1080P|720P|50 ?FPS|60 ?FPS)\b[\)\]]?"#
+
+    /// Clean channel title: drops short tag prefixes ("CRIC || …") and quality marks ("HD", "(4K)").
+    static func channelTitle(_ raw: String) -> String {
+        var segments = normalize(raw)
+            .components(separatedBy: CharacterSet(charactersIn: "|•┃│"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        while segments.count > 1, let first = segments.first, first.count <= 6 {
+            segments.removeFirst()
+        }
+        var title = segments.joined(separator: " ")
+        title = title.replacingOccurrences(of: qualityPattern, with: " ", options: .regularExpression)
+        title = title.replacingOccurrences(of: #"\(\s*\)|\[\s*\]"#, with: " ", options: .regularExpression)
+        let result = pretty(title)
+        return result.count >= 2 ? result : pretty(raw)
+    }
+
+    static func quality(_ raw: String) -> String? {
+        let words = Set(normalize(raw).uppercased().split { !$0.isLetter && !$0.isNumber }.map(String.init))
+        if !words.isDisjoint(with: ["4K", "8K", "UHD", "2160P"]) { return "4K" }
+        if !words.isDisjoint(with: ["FHD", "1080P"]) { return "FHD" }
+        if !words.isDisjoint(with: ["HD", "720P"]) { return "HD" }
+        return nil
+    }
+
     static func pretty(_ raw: String) -> String {
-        var text = raw.replacingOccurrences(of: " | ", with: " · ").replacingOccurrences(of: "|", with: " · ")
-        text = text.split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
+        var text = normalize(raw)
+        for separator in ["|", "•", "┃", "│"] {
+            text = text.replacingOccurrences(of: separator, with: " · ")
+        }
+        var tokens: [String] = []
+        for token in text.split(separator: " ", omittingEmptySubsequences: true).map(String.init) {
+            if token == "·" && (tokens.isEmpty || tokens.last == "·") { continue }
+            tokens.append(token)
+        }
+        while tokens.last == "·" { tokens.removeLast() }
+        text = tokens.joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: " .-:,"))
         guard text.contains(where: \.isLetter), !text.contains(where: \.isLowercase) else { return text }
         return text.split(separator: " ").map { word(String($0)) }.joined(separator: " ")
     }
@@ -167,11 +226,11 @@ struct ChannelLogo: View {
 
     private var nameplate: some View {
         Text(channel.title)
-            .font(.system(size: nameSize, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.78))
+            .font(.system(size: nameSize, weight: .bold))
+            .foregroundStyle(.white.opacity(0.88))
             .multilineTextAlignment(.center)
-            .lineLimit(2)
-            .minimumScaleFactor(0.7)
+            .lineLimit(3)
+            .minimumScaleFactor(0.6)
     }
 }
 
@@ -179,8 +238,8 @@ struct ChannelLogo: View {
 struct ChannelArtwork: View {
     let channel: PlaylistChannel
     var cornerRadius: CGFloat = 12
-    var nameSize: CGFloat = 15
-    var logoPadding: CGFloat = 18
+    var nameSize: CGFloat = 17
+    var logoPadding: CGFloat = 12
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -203,6 +262,17 @@ struct ChannelTile: View {
         VStack(alignment: .leading, spacing: 8) {
             ChannelArtwork(channel: channel)
                 .aspectRatio(16 / 9, contentMode: .fit)
+                .overlay(alignment: .topLeading) {
+                    if let quality = channel.quality {
+                        Text(quality)
+                            .font(.system(size: 9, weight: .heavy))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                            .padding(7)
+                    }
+                }
                 .shadow(color: .black.opacity(0.5), radius: 8, y: 4)
             VStack(alignment: .leading, spacing: 2) {
                 Text(channel.title)

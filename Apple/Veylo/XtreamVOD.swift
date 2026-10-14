@@ -188,7 +188,7 @@ enum VODParser {
                 kind: .movie,
                 name: name,
                 title: cleaned.title,
-                posterURL: JSONValue.url(entry["stream_icon"]),
+                posterURL: JSONValue.url(entry["stream_icon"]) ?? JSONValue.url(entry["cover_big"]) ?? JSONValue.url(entry["cover"]),
                 categoryID: JSONValue.string(entry["category_id"]) ?? "",
                 rating: rating(entry["rating"]),
                 year: year(entry["year"]) ?? cleaned.year,
@@ -213,7 +213,7 @@ enum VODParser {
                 kind: .series,
                 name: name,
                 title: cleaned.title,
-                posterURL: JSONValue.url(entry["cover"]),
+                posterURL: JSONValue.url(entry["cover"]) ?? backdrop(entry["backdrop_path"]),
                 categoryID: JSONValue.string(entry["category_id"]) ?? "",
                 rating: rating(entry["rating"]),
                 year: year(entry["releaseDate"]) ?? year(entry["release_date"]) ?? cleaned.year,
@@ -371,7 +371,18 @@ enum JSONValue {
     }
 
     static func url(_ value: Any?) -> URL? {
-        guard let text = string(value), text.lowercased().hasPrefix("http") else { return nil }
+        guard var text = string(value) else { return nil }
+        text = text.replacingOccurrences(of: "\\/", with: "/")
+        if text.hasPrefix("//") {
+            text = "https:" + text
+        } else if text.hasPrefix("/"), [".jpg", ".jpeg", ".png", ".webp"].contains(where: { text.lowercased().hasSuffix($0) }) {
+            // Bare TMDB image path ("/abc123.jpg").
+            text = "https://image.tmdb.org/t/p/w500" + text
+        } else if !text.lowercased().hasPrefix("http"), text.contains("."), !text.contains(" "),
+                  text.lowercased().hasPrefix("image.tmdb.org") || text.lowercased().hasPrefix("www.") {
+            text = "https://" + text
+        }
+        guard text.lowercased().hasPrefix("http") else { return nil }
         if let url = URL(string: text) { return url }
         return text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed).flatMap(URL.init(string:))
     }

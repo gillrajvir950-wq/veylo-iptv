@@ -533,7 +533,7 @@ struct CatalogView: View {
 
     private func tile(_ channel: PlaylistChannel, showsCategory: Bool) -> some View {
         Button { play(channel) } label: {
-            ChannelTile(channel: channel, subtitle: subtitle(for: channel, showsCategory: showsCategory))
+            ChannelTile(channel: channel)
                 .overlay(alignment: .topTrailing) {
                     if favoriteKeys.contains(channel.key) {
                         Image(systemName: "heart.fill")

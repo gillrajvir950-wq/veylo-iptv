@@ -12,6 +12,8 @@ struct PlaylistChannel: Identifiable {
     /// Detected country (ChannelCatalog), and the name without its "UK:" style prefix.
     var countryCode: String? = nil
     var displayName: String? = nil
+    /// "4K", "FHD" or "HD" from the provider name, shown as a small badge.
+    var quality: String? = nil
     var title: String { displayName ?? name }
 }
 

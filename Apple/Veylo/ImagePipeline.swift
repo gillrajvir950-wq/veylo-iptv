@@ -21,9 +21,14 @@ actor ImagePipeline {
         let configuration = URLSessionConfiguration.default
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        configuration.httpMaximumConnectionsPerHost = 6
-        configuration.timeoutIntervalForRequest = 20
-        configuration.timeoutIntervalForResource = 45
+        configuration.httpMaximumConnectionsPerHost = 8
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 180
+        // Some image hosts reject requests without a browser-like user agent.
+        configuration.httpAdditionalHeaders = [
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            "Accept": "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8,*/*;q=0.5"
+        ]
         session = URLSession(configuration: configuration)
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         directory = caches.appendingPathComponent("veylo-images", isDirectory: true)
