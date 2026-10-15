@@ -14,6 +14,7 @@ actor ImagePipeline {
     private static let memory = ImageMemoryCache()
     private var inFlight: [String: Task<UIImage?, Never>] = [:]
     private let session: URLSession
+    private let browserSession: URLSession
     private let directory: URL
     private static let diskLimit = 400 * 1024 * 1024
 
@@ -24,12 +25,13 @@ actor ImagePipeline {
         configuration.httpMaximumConnectionsPerHost = 8
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 180
-        // Some image hosts reject requests without a browser-like user agent.
-        configuration.httpAdditionalHeaders = [
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-            "Accept": "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8,*/*;q=0.5"
-        ]
         session = URLSession(configuration: configuration)
+        // Some image hosts only answer browser-like requests; used for the second attempt.
+        let browser = configuration.copy() as! URLSessionConfiguration
+        browser.httpAdditionalHeaders = [
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+        ]
+        browserSession = URLSession(configuration: browser)
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         directory = caches.appendingPathComponent("veylo-images", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -49,14 +51,14 @@ actor ImagePipeline {
 
         let file = directory.appendingPathComponent(key)
         let source = Self.optimized(url, maxPixel: maxPixel)
-        let session = self.session
+        let sessions = [self.session, self.browserSession, self.session]
         let task = Task.detached(priority: .utility) { () -> UIImage? in
             if let data = try? Data(contentsOf: file), let image = Self.downsample(data, maxPixel: maxPixel) {
                 return image
             }
             for attempt in 0..<3 {
                 if attempt > 0 { try? await Task.sleep(nanoseconds: UInt64(attempt) * 800_000_000) }
-                guard let result = try? await session.data(from: source) else { continue }
+                guard let result = try? await sessions[attempt].data(from: source) else { continue }
                 let (data, response) = result
                 if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                     if http.statusCode == 404 { return nil }

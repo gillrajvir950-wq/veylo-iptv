@@ -330,14 +330,7 @@ struct ChannelCatalog {
         var categoryInfo: [String: (genre: ChannelGenre, country: CountryInfo?)] = [:]
         var enriched: [PlaylistChannel] = []
         enriched.reserveCapacity(channels.count)
-        // A logo shared by many channels is a provider placeholder (e.g. one "4K ULTRA HD" image),
-        // so those channels show their own name instead.
-        var logoUse: [URL: Int] = [:]
-        for channel in channels {
-            if let logo = channel.logoURL { logoUse[logo, default: 0] += 1 }
-        }
         for var channel in channels {
-            if let logo = channel.logoURL, (logoUse[logo] ?? 0) >= 6 { channel.logoURL = nil }
             channel.quality = VeyloText.quality(channel.name)
             let info: (genre: ChannelGenre, country: CountryInfo?)
             if let cached = categoryInfo[channel.category] {
@@ -355,6 +348,19 @@ struct ChannelCatalog {
                 channel.displayName = VeyloText.channelTitle(channel.name)
             }
             enriched.append(channel)
+        }
+        // A logo used by several *different* channels is a provider placeholder (one "4K ULTRA HD"
+        // image on Sony Max, Star Movie, …), so those show their name instead. The same channel
+        // listed many times (HD/FHD/backup copies) keeps its real logo.
+        var titlesByLogo: [URL: Set<String>] = [:]
+        for channel in enriched {
+            if let logo = channel.logoURL { titlesByLogo[logo, default: []].insert(channel.title.lowercased()) }
+        }
+        let placeholders = Set(titlesByLogo.filter { $0.value.count >= 4 }.keys)
+        if !placeholders.isEmpty {
+            for index in enriched.indices {
+                if let logo = enriched[index].logoURL, placeholders.contains(logo) { enriched[index].logoURL = nil }
+            }
         }
         all = enriched
 

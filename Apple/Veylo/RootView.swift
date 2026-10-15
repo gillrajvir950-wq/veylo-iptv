@@ -20,7 +20,7 @@ struct RootView: View {
     @State private var loading = false
     @State private var errorMessage: String?
 
-    private let version = "0.0.21"
+    private let version = "0.0.22"
 
     var body: some View {
         NavigationStack {
