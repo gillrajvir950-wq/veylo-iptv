@@ -256,20 +256,24 @@ struct PlaybackView: View {
             .scaleEffect(x: scale.x, y: scale.y)
             .frame(width: box.width, height: box.height)
             .clipped()
-            .overlay { videoOverlay }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    if showList { showList = false } else { controlsVisible.toggle() }
-                }
+            .overlay {
+                // Tap/swipe layer above the VLC view, so gestures always reach SwiftUI.
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            if showList { showList = false } else { controlsVisible.toggle() }
+                        }
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 30).onEnded { value in
+                            guard full, canSwitch, abs(value.translation.width) > abs(value.translation.height) * 1.5,
+                                  abs(value.translation.width) > 70 else { return }
+                            step(value.translation.width < 0 ? 1 : -1)
+                        }
+                    )
             }
-            .gesture(
-                DragGesture(minimumDistance: 30).onEnded { value in
-                    guard full, canSwitch, abs(value.translation.width) > abs(value.translation.height) * 1.5,
-                          abs(value.translation.width) > 70 else { return }
-                    step(value.translation.width < 0 ? 1 : -1)
-                }
-            )
+            .overlay { videoOverlay }
             .animation(.easeInOut(duration: 0.25), value: aspect)
     }
 

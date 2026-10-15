@@ -174,6 +174,8 @@ private struct VODVideoSurface: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
         view.backgroundColor = .black
+        // Taps go to SwiftUI (show/hide controls), not the video view.
+        view.isUserInteractionEnabled = false
         playback.attach(view)
         return view
     }
@@ -204,6 +206,13 @@ struct VODPlayerView: View {
             Color.black.ignoresSafeArea()
             VODVideoSurface(playback: playback)
                 .ignoresSafeArea()
+            // Always-on tap layer so hidden controls can be brought back.
+            Color.clear
+                .contentShape(Rectangle())
+                .ignoresSafeArea()
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
+                }
             if playback.status == .loading {
                 ProgressView()
                     .controlSize(.large)
@@ -215,10 +224,6 @@ struct VODPlayerView: View {
             } else if controlsVisible {
                 controls.transition(.opacity)
             }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
         }
         .task(id: AutoHideKey(visible: controlsVisible, status: playback.status, scrubbing: scrubValue != nil)) {
             guard controlsVisible, playback.status == .playing, scrubValue == nil else { return }
