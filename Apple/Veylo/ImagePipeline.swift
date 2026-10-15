@@ -167,20 +167,26 @@ final class ImageMemoryCache: @unchecked Sendable {
 
 /// Cached remote image with an optional placeholder shown until it loads (or if it fails).
 struct RemoteImage<Placeholder: View>: View {
-    let url: URL?
+    /// Tried in order until one loads (e.g. provider logo, then a public-database logo).
+    let urls: [URL]
     let maxPixel: CGFloat
     let contentMode: ContentMode
     let placeholder: Placeholder
 
     @State private var image: UIImage?
 
-    init(url: URL?, maxPixel: CGFloat = 540, contentMode: ContentMode = .fill,
+    init(urls: [URL], maxPixel: CGFloat = 540, contentMode: ContentMode = .fill,
          @ViewBuilder placeholder: () -> Placeholder) {
-        self.url = url
+        self.urls = urls
         self.maxPixel = maxPixel
         self.contentMode = contentMode
         self.placeholder = placeholder()
-        _image = State(initialValue: url.flatMap { ImagePipeline.shared.memoryImage(for: $0, maxPixel: maxPixel) })
+        _image = State(initialValue: urls.lazy.compactMap { ImagePipeline.shared.memoryImage(for: $0, maxPixel: maxPixel) }.first)
+    }
+
+    init(url: URL?, maxPixel: CGFloat = 540, contentMode: ContentMode = .fill,
+         @ViewBuilder placeholder: () -> Placeholder) {
+        self.init(urls: url.map { [$0] } ?? [], maxPixel: maxPixel, contentMode: contentMode, placeholder: placeholder)
     }
 
     var body: some View {
@@ -193,19 +199,24 @@ struct RemoteImage<Placeholder: View>: View {
                 content
             }
         }
-        .task(id: url) {
-            guard let url else {
+        .task(id: urls) {
+            guard !urls.isEmpty else {
                 image = nil
                 return
             }
-            if let cached = ImagePipeline.shared.memoryImage(for: url, maxPixel: maxPixel) {
+            if let cached = urls.lazy.compactMap({ ImagePipeline.shared.memoryImage(for: $0, maxPixel: maxPixel) }).first {
                 image = cached
                 return
             }
             image = nil
-            let loaded = await ImagePipeline.shared.image(for: url, maxPixel: maxPixel)
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.2)) { image = loaded }
+            for url in urls {
+                if let loaded = await ImagePipeline.shared.image(for: url, maxPixel: maxPixel) {
+                    guard !Task.isCancelled else { return }
+                    withAnimation(.easeOut(duration: 0.2)) { image = loaded }
+                    return
+                }
+                if Task.isCancelled { return }
+            }
         }
     }
 

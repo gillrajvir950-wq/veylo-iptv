@@ -75,6 +75,7 @@ struct MainTabView: View {
                 .ignoresSafeArea(.keyboard)
         }
         .sensoryFeedback(.selection, trigger: tab)
+        .task { await LogoDirectory.shared.prepare() }
         .task {
             // Get Movies and Series ready in the background (instant when saved on the device).
             try? await Task.sleep(for: .seconds(1.5))

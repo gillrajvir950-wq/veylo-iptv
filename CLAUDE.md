@@ -4,7 +4,7 @@
 Continue development of **Veylo**, an iOS IPTV player for streams that the user is authorized to access. Do not rewrite or start a second app. Keep the existing GitHub repository (made public on 2026-10-13 for free macOS Actions minutes; never commit secrets) `gillrajvir950-wq/veylo-iptv` and the `main` branch as the source of truth. Speak to the user in conversational Hinglish (Roman Hindi).
 
 ## Current state (2026-10-13)
-- Current repository version: **0.0.22** (see `project.yml` and `.github/workflows/ios-build.yml`). 0.0.16 UI was installed and shown working by the user (14,710 channels, 157 categories); 0.0.17 build passed; 0.0.18 build passed; 0.0.19 installed by user (Movies/Series load but re-download every launch; posters slow/missing); 0.0.20 installed by user (some posters still missing; live tiles showed shared "4K ULTRA HD" logos); 0.0.21 installed by user (real logos like Sony Ten 2 disappeared — the ≥6-uses rule hid duplicated channels); 0.0.22 device testing pending.
+- Current repository version: **0.0.23** (see `project.yml` and `.github/workflows/ios-build.yml`). 0.0.16 UI was installed and shown working by the user (14,710 channels, 157 categories); 0.0.17 build passed; 0.0.18 build passed; 0.0.19 installed by user (Movies/Series load but re-download every launch; posters slow/missing); 0.0.20 installed by user (some posters still missing; live tiles showed shared "4K ULTRA HD" logos); 0.0.21 installed by user (real logos like Sony Ten 2 disappeared — the ≥6-uses rule hid duplicated channels); 0.0.22 installed by user (provider has no real logos for e.g. Sony Max/Star Movie — they only had the shared 4K image); 0.0.23 device testing pending.
 - **0.0.13 playback was confirmed working by the user** on iPhone after using MPEG-TS (`.ts`) streams by default. Earlier **0.0.9** confirmed video and audio through in-app MobileVLCKit.
 - Playback regressed in 0.0.11 and 0.0.12 when player lifecycle/format was changed; treat the working path as critical.
 - 0.0.14 introduced opt-in `Stay signed in` with password in iOS Keychain and auto-login.
@@ -16,6 +16,7 @@ Continue development of **Veylo**, an iOS IPTV player for streams that the user 
 - 0.0.20 performance: `ImagePipeline.swift` (actor) replaces AsyncImage everywhere via `RemoteImage` — memory + disk cache (Caches/veylo-images, 400 MB cap), ImageIO downsampling, 3 retries, downloads continue after scroll-away, TMDB URLs resized. Movies/Series raw API data saved per account in Caches/veylo-library (`VODLibraryCache`, key = SHA256(server|username), no password) → instant load on relaunch, silent background refresh after 12 h, pull-to-refresh, background prefetch after login. Settings has "Clear Image & Library Cache".
 - 0.0.21: live tiles drop the flag/category line; a logo URL shared by ≥6 channels is treated as a provider placeholder and replaced by the channel name; `VeyloText.channelTitle` strips short tag prefixes ("CRIC ||"), superscripts (ᴴᴰ) and quality marks, with a 4K/FHD/HD badge (`PlaylistChannel.quality`). Images: browser User-Agent, longer timeouts, poster URL fixes (`//`, bare TMDB paths, `\/`), series/movie poster fallbacks.
 - 0.0.22: placeholder-logo rule now counts *distinct channel titles* per logo URL (≥4 different titles → placeholder), so repeated copies of one channel keep their logo. Image requests try the plain request first, then a browser User-Agent session.
+- 0.0.23: `LogoDirectory.swift` downloads the public iptv-org database (`api/channels.json` + `api/logos.json`, raster logos only) in the background, saves a name→logo index in Caches/veylo-logos (weekly refresh) and supplies a fallback logo matched by cleaned channel name (country preferred, UK→GB). `RemoteImage(urls:)` tries provider logo first, then the database logo.
 - End-user signing: GitHub Actions creates **unsigned** iOS IPA; user signs and sideloads separately with **Feather**. Never ask for the user's certificate/private key, provider username/password, playlist URL, or Keychain contents.
 
 ## Project anatomy
@@ -26,6 +27,7 @@ Continue development of **Veylo**, an iOS IPTV player for streams that the user 
 - `Apple/Veylo/ChannelCatalog.swift`: type/country classification and per-country slices, built once at login (provider category order, Uncategorized last).
 - `Apple/Veylo/MainTabView.swift`: tab shell, floating bar, SettingsView.
 - `Apple/Veylo/XtreamVOD.swift`, `MediaLibrary.swift`, `LibraryView.swift`, `VODDetailViews.swift`, `VODPlayerView.swift`: Movies & Series.
+- `Apple/Veylo/ImagePipeline.swift`, `LogoDirectory.swift`: image cache/loader and public fallback channel logos.
 - `Apple/Veylo/VeyloTheme.swift`: colors, backdrop, brand mark, ChannelArtwork/ChannelTile, connecting splash.
 - `Apple/Veylo/XtreamClient.swift`: login, get_live_streams, get_live_categories, authenticated stream URL generation.
 - `Apple/Veylo/M3UClient.swift`: playlist downloading/parsing, group-title, tvg-logo; `PlaylistChannel` model.
