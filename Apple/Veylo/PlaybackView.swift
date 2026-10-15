@@ -48,6 +48,8 @@ struct PlaybackView: View {
     @State private var aspect: VideoAspect = .fit
     @State private var toast: String?
     @State private var programmes: [EPGProgram] = []
+    @State private var vlcSuspended = false
+    @ObservedObject private var pip = PiPManager.shared
     @ObservedObject private var session = ProviderSession.shared
 
     init(channel: PlaylistChannel,
@@ -80,12 +82,6 @@ struct PlaybackView: View {
         let playbackID: UUID
     }
 
-    private var alternativeURL: URL? {
-        let candidate = currentURL ?? url
-        let ext = candidate.pathExtension.lowercased()
-        guard ext == "ts" || ext == "m3u8" else { return nil }
-        return candidate.deletingPathExtension().appendingPathExtension(ext == "ts" ? "m3u8" : "ts")
-    }
 
     // MARK: Body
 
@@ -250,7 +246,12 @@ struct PlaybackView: View {
         case .fill: scale = (max(sx, sy), max(sx, sy))
         case .stretch: scale = (sx, sy)
         }
-        return videoSurface
+        return ZStack {
+            PiPLayerHost()
+            if !vlcSuspended {
+                videoSurface
+            }
+        }
             .frame(width: fitted.width, height: fitted.height)
             .scaleEffect(x: scale.x, y: scale.y)
             .frame(width: box.width, height: box.height)
@@ -328,6 +329,27 @@ struct PlaybackView: View {
                 .buttonStyle(VeyloPressStyle())
             }
             .padding(16)
+        } else if vlcSuspended {
+            VStack(spacing: 10) {
+                Image(systemName: "pip")
+                    .font(.system(size: 30, weight: .light))
+                Text(pip.state == .active ? "Playing in Picture-in-Picture" : "Starting Picture-in-Picture…")
+                    .font(.system(size: 14, weight: .semibold))
+                if pip.state == .active {
+                    Button { pip.stop() } label: {
+                        Text("Watch here")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(.white, in: Capsule())
+                    }
+                    .buttonStyle(VeyloPressStyle())
+                } else {
+                    ProgressView().tint(.white)
+                }
+            }
+            .foregroundStyle(.white)
         } else if isLoading && !paused {
             ProgressView()
                 .controlSize(.large)
@@ -342,7 +364,12 @@ struct PlaybackView: View {
         HStack {
             circleButton("chevron.down", size: 36, label: "Close player") { dismiss() }
             Spacer()
-            circleButton("arrow.up.left.and.arrow.down.right", size: 36, label: "Full screen") { enterFullScreen() }
+            HStack(spacing: 10) {
+                if PiPManager.isSupported {
+                    circleButton("pip.enter", size: 36, label: "Picture in Picture") { startPiP() }
+                }
+                circleButton("arrow.up.left.and.arrow.down.right", size: 36, label: "Full screen") { enterFullScreen() }
+            }
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)
@@ -410,20 +437,6 @@ struct PlaybackView: View {
             .padding(.horizontal, 24)
             .padding(.vertical, 16)
 
-            if let alternativeURL, isFailed || isLoading {
-                Button { play(alternativeURL) } label: {
-                    Label("Not loading? Try \(alternativeURL.pathExtension.uppercased()) stream", systemImage: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(VeyloTheme.textSecondary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 40)
-                        .background(VeyloTheme.fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .buttonStyle(VeyloPressStyle())
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
-            }
-
             Divider().overlay(VeyloTheme.stroke)
             channelList(compact: false)
         }
@@ -464,6 +477,9 @@ struct PlaybackView: View {
                         }
                     }
                     Spacer()
+                    if PiPManager.isSupported {
+                        circleButton("pip.enter", size: 40, label: "Picture in Picture") { startPiP() }
+                    }
                     circleButton(aspect.icon, size: 40, label: "Aspect: \(aspect.rawValue)") {
                         aspect = aspect.next
                         withAnimation { toast = aspect.rawValue }
@@ -496,11 +512,6 @@ struct PlaybackView: View {
                 Spacer()
                 HStack(spacing: 10) {
                     pillButton("Reload", icon: "arrow.clockwise") { reload() }
-                    if let alternativeURL {
-                        pillButton("Try \(alternativeURL.pathExtension.uppercased())", icon: "arrow.triangle.2.circlepath") {
-                            play(alternativeURL)
-                        }
-                    }
                     Spacer()
                     if canSwitch {
                         Text("Swipe ← → to change channel")
@@ -700,6 +711,21 @@ struct PlaybackView: View {
     private func toggleFavorite() {
         favoriteOverrides[channel.key] = !showsFavorite
         onToggleFavorite(channel)
+    }
+
+    /// Hands the channel to Apple's player for Picture-in-Picture; VLC stops meanwhile and
+    /// restarts when PiP closes (or if the channel has no playable HLS stream).
+    private func startPiP() {
+        guard PiPManager.isSupported, pip.state == .idle, !vlcSuspended else { return }
+        let source = PiPManager.hlsURL(for: currentURL ?? url)
+        vlcSuspended = true
+        pip.start(url: source) { failed in
+            vlcSuspended = false
+            play(currentURL ?? url)
+            if failed {
+                withAnimation { toast = "Picture-in-Picture isn’t available for this channel" }
+            }
+        }
     }
 
     private func enterFullScreen() {

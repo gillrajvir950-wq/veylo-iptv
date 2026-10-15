@@ -14,15 +14,17 @@ targets:
     info:
       path: Apple/Veylo/Info.plist
       properties:
-        CFBundleDisplayName: 'Veylo 0.0.25'
+        CFBundleDisplayName: 'Veylo 0.0.26'
         UILaunchStoryboardName: LaunchScreen
         UIRequiresFullScreen: true
+        UIBackgroundModes:
+          - audio
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.veylo.player
-        MARKETING_VERSION: 0.0.25
-        CURRENT_PROJECT_VERSION: 25
+        MARKETING_VERSION: 0.0.26
+        CURRENT_PROJECT_VERSION: 26
         TARGETED_DEVICE_FAMILY: '1,2'
         CODE_SIGNING_ALLOWED: NO

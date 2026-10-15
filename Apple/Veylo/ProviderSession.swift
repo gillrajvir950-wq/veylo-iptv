@@ -40,6 +40,7 @@ final class ProviderSession: ObservableObject {
     /// Now/next programmes for an Xtream live channel (empty for M3U or when the provider has no guide).
     func programmes(for channel: PlaylistChannel) async -> [EPGProgram] {
         guard let client, channel.key.hasPrefix("x:"), let id = Int(channel.key.dropFirst(2)) else { return [] }
-        return (try? await client.shortEPG(streamID: id)) ?? []
+        let zone = await MainActor.run { account?.timeZone }
+        return (try? await client.shortEPG(streamID: id, timeZone: zone)) ?? []
     }
 }

@@ -79,6 +79,7 @@ struct SeriesDetails {
 }
 
 struct ProviderAccountInfo {
+    let timeZone: TimeZone?
     let status: String?
     let expires: Date?
     let isTrial: Bool
@@ -170,7 +171,9 @@ extension XtreamClient {
         guard let root = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any],
               let info = root["user_info"] as? [String: Any] else { throw XtreamError.invalidResponse }
         let expiry = JSONValue.double(info["exp_date"]).flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil }
+        let server = root["server_info"] as? [String: Any] ?? [:]
         return ProviderAccountInfo(
+            timeZone: JSONValue.string(server["timezone"]).flatMap(TimeZone.init(identifier:)),
             status: JSONValue.string(info["status"]),
             expires: expiry,
             isTrial: JSONValue.int(info["is_trial"]) == 1,
@@ -179,23 +182,50 @@ extension XtreamClient {
         )
     }
 
-    /// Now / next programmes for a live channel (titles are base64 in the Xtream API).
-    func shortEPG(streamID: Int, limit: Int = 4) async throws -> [EPGProgram] {
-        let data = try await vodData(action: "get_short_epg", extra: [
-            URLQueryItem(name: "stream_id", value: String(streamID)),
-            URLQueryItem(name: "limit", value: String(limit))
-        ])
-        guard let root = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any] else {
-            return []
+    /// Current and upcoming programmes for a live channel. Tries the short guide first and the
+    /// full-day table as a fallback; accepts unix timestamps or "yyyy-MM-dd HH:mm:ss" in the server's zone.
+    func shortEPG(streamID: Int, timeZone: TimeZone?, limit: Int = 6) async throws -> [EPGProgram] {
+        let stream = URLQueryItem(name: "stream_id", value: String(streamID))
+        var list = (try? await epgListings(action: "get_short_epg",
+                                           extra: [stream, URLQueryItem(name: "limit", value: String(limit))],
+                                           timeZone: timeZone)) ?? []
+        let now = Date()
+        if !list.contains(where: { $0.end > now }) {
+            list = (try? await epgListings(action: "get_simple_data_table", extra: [stream], timeZone: timeZone)) ?? list
         }
-        return VODParser.objects(root["epg_listings"]).compactMap { entry -> EPGProgram? in
-            guard let start = JSONValue.double(entry["start_timestamp"]),
-                  let end = JSONValue.double(entry["stop_timestamp"] ?? entry["end_timestamp"]),
+        return Array(list.filter { $0.end > now }.prefix(limit))
+    }
+
+    private func epgListings(action: String, extra: [URLQueryItem], timeZone: TimeZone?) async throws -> [EPGProgram] {
+        let data = try await vodData(action: action, extra: extra)
+        let root = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+        var entries: [[String: Any]] = []
+        if let object = root as? [String: Any] {
+            let listings = object["epg_listings"]
+            entries = VODParser.objects(listings)
+            if entries.isEmpty, let map = listings as? [String: Any] {
+                entries = map.values.compactMap { $0 as? [String: Any] }
+            }
+        } else {
+            entries = VODParser.objects(root)
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        formatter.timeZone = timeZone ?? TimeZone(identifier: "UTC")
+        func date(_ timestamp: Any?, _ text: Any?) -> Date? {
+            if let seconds = JSONValue.double(timestamp), seconds > 0 { return Date(timeIntervalSince1970: seconds) }
+            return JSONValue.string(text).flatMap { formatter.date(from: $0) }
+        }
+        var seen = Set<String>()
+        return entries.compactMap { entry -> EPGProgram? in
+            guard let start = date(entry["start_timestamp"], entry["start"]),
+                  let end = date(entry["stop_timestamp"] ?? entry["end_timestamp"], entry["end"] ?? entry["stop"]),
                   end > start,
                   let title = EPGProgram.decode(entry["title"]) else { return nil }
-            return EPGProgram(title: title, summary: EPGProgram.decode(entry["description"]),
-                              start: Date(timeIntervalSince1970: start), end: Date(timeIntervalSince1970: end))
+            return EPGProgram(title: title, summary: EPGProgram.decode(entry["description"]), start: start, end: end)
         }
+        .filter { seen.insert($0.id).inserted }
         .sorted { $0.start < $1.start }
     }
 
