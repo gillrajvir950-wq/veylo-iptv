@@ -1,39 +1,80 @@
 import SwiftUI
 
-/// Player screen. Layout only — the VLC surface and its playback/format behavior are unchanged.
-/// The video surface stays in one fixed position in the view tree, so rotating or entering
-/// full screen resizes the same player instead of restarting the stream.
+/// How the video fills the screen. Done with view scaling only, so VLC playback is untouched.
+enum VideoAspect: String, CaseIterable {
+    case fit = "Fit", fill = "Fill", stretch = "Stretch"
+
+    var icon: String {
+        switch self {
+        case .fit: return "rectangle.arrowtriangle.2.inward"
+        case .fill: return "rectangle.arrowtriangle.2.outward"
+        case .stretch: return "arrow.left.and.right.square"
+        }
+    }
+
+    var next: VideoAspect {
+        switch self {
+        case .fit: return .fill
+        case .fill: return .stretch
+        case .stretch: return .fit
+        }
+    }
+}
+
+/// Live TV player.
+/// Portrait: edge-to-edge video, controls, and the category's channel list underneath.
+/// Landscape / full screen: video with overlay controls, swipe to change channel,
+/// slide-in channel list and Fit / Fill / Stretch.
+/// The VLC surface stays in one fixed place in the view tree, so rotating, switching layout
+/// or changing aspect never restarts the stream. Playback start/format logic is unchanged.
 struct PlaybackView: View {
-    let channel: PlaylistChannel
-    /// "🇬🇧  Sports · Cricket" style line under the channel name.
-    var subtitle: String = ""
-    var isFavorite: Bool = false
-    var onToggleFavorite: () -> Void = {}
+    let lineup: [PlaylistChannel]
+    let subtitle: (PlaylistChannel) -> String
+    let isFavorite: (PlaylistChannel) -> Bool
+    let onToggleFavorite: (PlaylistChannel) -> Void
+    let onChannelChange: (PlaylistChannel) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var favorite: Bool?
+    @State private var channel: PlaylistChannel
+    @State private var favoriteOverrides: [String: Bool] = [:]
     @State private var currentURL: URL?
     @State private var playbackID = UUID()
     @State private var paused = false
     @State private var status = "Loading channel…"
+    @State private var lastLive = Date.distantPast
     @State private var immersive = false
     @State private var controlsVisible = true
+    @State private var showList = false
+    @State private var aspect: VideoAspect = .fit
+    @State private var toast: String?
+
+    init(channel: PlaylistChannel,
+         lineup: [PlaylistChannel],
+         subtitle: @escaping (PlaylistChannel) -> String = { _ in "" },
+         isFavorite: @escaping (PlaylistChannel) -> Bool = { _ in false },
+         onToggleFavorite: @escaping (PlaylistChannel) -> Void = { _ in },
+         onChannelChange: @escaping (PlaylistChannel) -> Void = { _ in }) {
+        self.lineup = lineup.isEmpty ? [channel] : lineup
+        self.subtitle = subtitle
+        self.isFavorite = isFavorite
+        self.onToggleFavorite = onToggleFavorite
+        self.onChannelChange = onChannelChange
+        _channel = State(initialValue: channel)
+    }
 
     private var url: URL { channel.url }
-    private var showsFavorite: Bool { favorite ?? isFavorite }
-
-    private func toggleFavorite() {
-        favorite = !showsFavorite
-        onToggleFavorite()
-    }
     private var isLive: Bool { status == "Live" }
     private var isLoading: Bool { status == "Loading channel…" }
     private var isFailed: Bool { status.hasPrefix("Playback failed") || status == "Stream ended" }
+    private var canSwitch: Bool { lineup.count > 1 }
+    private var showsFavorite: Bool { favoriteOverrides[channel.key] ?? isFavorite(channel) }
+    private var lineupTitle: String { VeyloText.pretty(channel.category) }
 
     private struct AutoHideKey: Hashable {
         let visible: Bool
         let paused: Bool
         let full: Bool
+        let list: Bool
         let playbackID: UUID
     }
 
@@ -44,54 +85,98 @@ struct PlaybackView: View {
         return candidate.deletingPathExtension().appendingPathExtension(ext == "ts" ? "m3u8" : "ts")
     }
 
+    // MARK: Body
+
     var body: some View {
         GeometryReader { geometry in
             let landscape = geometry.size.width > geometry.size.height
             let full = immersive || landscape
-            let videoSize = full ? Self.fit(geometry.size) : Self.portraitVideo(width: geometry.size.width)
+            let box = full ? geometry.size : CGSize(width: geometry.size.width, height: geometry.size.width * 9 / 16)
             ZStack(alignment: .top) {
-                (full ? Color.black : VeyloTheme.background).ignoresSafeArea()
+                Color.black.ignoresSafeArea()
                 VStack(spacing: 0) {
-                    if !full { topBar }
-                    videoSurface
-                        .frame(width: videoSize.width, height: videoSize.height)
-                        .clipShape(RoundedRectangle(cornerRadius: full ? 0 : 18, style: .continuous))
-                        .overlay { videoOverlay }
-                        .frame(maxWidth: .infinity, maxHeight: full ? .infinity : nil)
-                    if !full { infoPanel }
+                    video(in: box, full: full)
+                    if !full { portraitPanel }
                 }
-                if full && controlsVisible {
+                if !full { portraitTopBar }
+                if full && controlsVisible && !showList {
                     fullControls.transition(.opacity)
                 }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                guard full else { return }
-                withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
+                if full && showList {
+                    sidePanel(height: geometry.size.height)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+                if let toast {
+                    Text(toast)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .frame(height: 36)
+                        .background(.black.opacity(0.7), in: Capsule())
+                        .padding(.top, full ? 70 : box.height / 2 - 18)
+                        .transition(.opacity)
+                        .allowsHitTesting(false)
+                }
             }
             .onChange(of: full) { _, isFull in
-                if isFull { controlsVisible = true }
+                if isFull { controlsVisible = true } else { showList = false }
             }
-            .task(id: AutoHideKey(visible: controlsVisible, paused: paused, full: full, playbackID: playbackID)) {
-                guard full, controlsVisible, !paused else { return }
+            .task(id: AutoHideKey(visible: controlsVisible, paused: paused, full: full, list: showList, playbackID: playbackID)) {
+                guard full, controlsVisible, !paused, !showList else { return }
                 try? await Task.sleep(for: .seconds(4))
                 guard !Task.isCancelled else { return }
                 withAnimation(.easeInOut(duration: 0.3)) { controlsVisible = false }
+            }
+            .task(id: toast) {
+                guard toast != nil else { return }
+                try? await Task.sleep(for: .seconds(1.2))
+                guard !Task.isCancelled else { return }
+                withAnimation { toast = nil }
             }
             .statusBarHidden(full)
             .persistentSystemOverlays(full ? .hidden : .automatic)
         }
         .preferredColorScheme(.dark)
+        .sensoryFeedback(.selection, trigger: channel.id)
     }
+
+    // MARK: Video
 
     private static func fit(_ size: CGSize) -> CGSize {
         let width = max(0, min(size.width, size.height * 16 / 9))
         return CGSize(width: width, height: width * 9 / 16)
     }
 
-    private static func portraitVideo(width: CGFloat) -> CGSize {
-        let w = max(0, width - 32)
-        return CGSize(width: w, height: w * 9 / 16)
+    private func video(in box: CGSize, full: Bool) -> some View {
+        let fitted = Self.fit(box)
+        let sx = fitted.width > 0 ? box.width / fitted.width : 1
+        let sy = fitted.height > 0 ? box.height / fitted.height : 1
+        let scale: (x: CGFloat, y: CGFloat)
+        switch full ? aspect : .fit {
+        case .fit: scale = (1, 1)
+        case .fill: scale = (max(sx, sy), max(sx, sy))
+        case .stretch: scale = (sx, sy)
+        }
+        return videoSurface
+            .frame(width: fitted.width, height: fitted.height)
+            .scaleEffect(x: scale.x, y: scale.y)
+            .frame(width: box.width, height: box.height)
+            .clipped()
+            .overlay { videoOverlay }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    if showList { showList = false } else { controlsVisible.toggle() }
+                }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 30).onEnded { value in
+                    guard full, canSwitch, abs(value.translation.width) > abs(value.translation.height) * 1.5,
+                          abs(value.translation.width) > 70 else { return }
+                    step(value.translation.width < 0 ? 1 : -1)
+                }
+            )
+            .animation(.easeInOut(duration: 0.25), value: aspect)
     }
 
     private var videoSurface: some View {
@@ -100,7 +185,12 @@ struct PlaybackView: View {
             playbackID: playbackID,
             isPaused: paused,
             onStateChange: { newState in
-                status = newState
+                if newState == "Live" {
+                    lastLive = Date()
+                } else if newState == "Loading channel…", Date().timeIntervalSince(lastLive) < 2.5 {
+                    return // VLC buffering ticks while video is already playing
+                }
+                if status != newState { status = newState }
             }
         )
         .background(Color.black)
@@ -112,17 +202,29 @@ struct PlaybackView: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 26))
                     .foregroundStyle(.yellow)
-                Text(status)
-                    .font(.system(size: 14, weight: .semibold))
+                Text(status == "Stream ended" ? "Stream ended" : "This channel isn’t playing right now")
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
-                Button { reload() } label: {
-                    Label("Reload", systemImage: "arrow.clockwise")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 9)
-                        .background(.white, in: Capsule())
+                HStack(spacing: 10) {
+                    Button { reload() } label: {
+                        Label("Reload", systemImage: "arrow.clockwise")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 9)
+                            .background(.white, in: Capsule())
+                    }
+                    if canSwitch {
+                        Button { step(1) } label: {
+                            Label("Next channel", systemImage: "forward.end.fill")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 9)
+                                .background(.white.opacity(0.18), in: Capsule())
+                        }
+                    }
                 }
                 .buttonStyle(VeyloPressStyle())
             }
@@ -137,79 +239,279 @@ struct PlaybackView: View {
 
     // MARK: Portrait
 
-    private var topBar: some View {
-        HStack(spacing: 12) {
-            circleButton("chevron.down", label: "Close player", dark: false) { dismiss() }
+    private var portraitTopBar: some View {
+        HStack {
+            circleButton("chevron.down", size: 36, label: "Close player") { dismiss() }
             Spacer()
-            VStack(spacing: 2) {
-                Text("NOW PLAYING")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(1.6)
-                    .foregroundStyle(VeyloTheme.textTertiary)
-                Text(subtitle)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(VeyloTheme.textSecondary)
-                    .lineLimit(1)
-            }
-            Spacer()
-            circleButton("arrow.up.left.and.arrow.down.right", label: "Full screen", dark: false) { enterFullScreen() }
+            circleButton("arrow.up.left.and.arrow.down.right", size: 36, label: "Full screen") { enterFullScreen() }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 14)
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .opacity(controlsVisible || isFailed ? 1 : 0)
     }
 
-    private var infoPanel: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(spacing: 14) {
-                ChannelArtwork(channel: channel, cornerRadius: 14, nameSize: 11, logoPadding: 8)
-                    .frame(width: 64, height: 64)
-                VStack(alignment: .leading, spacing: 6) {
-                    statusBadge
+    private var portraitPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                ChannelArtwork(channel: channel, cornerRadius: 12, nameSize: 10, logoPadding: 6)
+                    .frame(width: 64, height: 40)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        statusBadge
+                        if let quality = channel.quality { qualityBadge(quality) }
+                    }
                     Text(channel.title)
-                        .font(.system(size: 22, weight: .bold))
+                        .font(.system(size: 20, weight: .bold))
                         .foregroundStyle(.white)
-                        .lineLimit(2)
+                        .lineLimit(1)
+                    let detail = subtitle(channel)
+                    if !detail.isEmpty {
+                        Text(detail)
+                            .font(.system(size: 13))
+                            .foregroundStyle(VeyloTheme.textTertiary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+                Button { toggleFavorite() } label: {
+                    Image(systemName: showsFavorite ? "heart.fill" : "heart")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(showsFavorite ? Color.pink : Color.white.opacity(0.8))
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(VeyloPressStyle(scale: 0.85))
+                .accessibilityLabel(showsFavorite ? "Remove favorite" : "Add favorite")
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+
+            HStack(spacing: 0) {
+                transportButton("arrow.clockwise", label: "Reload") { reload() }
+                Spacer()
+                transportButton("backward.end.fill", label: "Previous channel") { step(-1) }
+                    .disabled(!canSwitch).opacity(canSwitch ? 1 : 0.3)
+                Spacer()
+                Button { paused.toggle() } label: {
+                    Image(systemName: paused ? "play.fill" : "pause.fill")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(.black)
+                        .frame(width: 64, height: 64)
+                        .background(.white, in: Circle())
+                }
+                .buttonStyle(VeyloPressStyle(scale: 0.9))
+                .accessibilityLabel(paused ? "Play" : "Pause")
+                Spacer()
+                transportButton("forward.end.fill", label: "Next channel") { step(1) }
+                    .disabled(!canSwitch).opacity(canSwitch ? 1 : 0.3)
+                Spacer()
+                transportButton("arrow.up.left.and.arrow.down.right", label: "Full screen") { enterFullScreen() }
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+
+            if let alternativeURL, isFailed || isLoading {
+                Button { play(alternativeURL) } label: {
+                    Label("Not loading? Try \(alternativeURL.pathExtension.uppercased()) stream", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(VeyloTheme.textSecondary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 40)
+                        .background(VeyloTheme.fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(VeyloPressStyle())
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+            }
+
+            Divider().overlay(VeyloTheme.stroke)
+            channelList(compact: false)
+        }
+        .background(VeyloTheme.background)
+    }
+
+    // MARK: Full screen
+
+    private var fullControls: some View {
+        ZStack {
+            VStack(spacing: 0) {
+                LinearGradient(colors: [.black.opacity(0.8), .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 140)
+                Spacer()
+                LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 110)
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+
+            VStack {
+                HStack(spacing: 12) {
+                    circleButton("xmark", size: 40, label: "Close player") { dismiss() }
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 8) {
+                            statusBadge
+                            if let quality = channel.quality { qualityBadge(quality) }
+                        }
+                        Text(channel.title)
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    circleButton(aspect.icon, size: 40, label: "Aspect: \(aspect.rawValue)") {
+                        aspect = aspect.next
+                        withAnimation { toast = aspect.rawValue }
+                    }
+                    circleButton(showsFavorite ? "heart.fill" : "heart", size: 40,
+                                 label: showsFavorite ? "Remove favorite" : "Add favorite") { toggleFavorite() }
+                    if canSwitch {
+                        circleButton("list.bullet", size: 40, label: "Channels") {
+                            withAnimation(.snappy) { showList = true }
+                        }
+                    }
+                    if immersive {
+                        circleButton("arrow.down.right.and.arrow.up.left", size: 40, label: "Exit full screen") {
+                            withAnimation(.easeInOut(duration: 0.25)) { immersive = false }
+                        }
+                    }
+                }
+                Spacer()
+                HStack(spacing: 44) {
+                    roundControl("backward.end.fill", size: 54, label: "Previous channel") { step(-1) }
+                        .opacity(canSwitch ? 1 : 0)
+                        .disabled(!canSwitch)
+                    roundControl(paused ? "play.fill" : "pause.fill", size: 76, label: paused ? "Play" : "Pause") {
+                        paused.toggle()
+                    }
+                    roundControl("forward.end.fill", size: 54, label: "Next channel") { step(1) }
+                        .opacity(canSwitch ? 1 : 0)
+                        .disabled(!canSwitch)
+                }
+                Spacer()
+                HStack(spacing: 10) {
+                    pillButton("Reload", icon: "arrow.clockwise") { reload() }
+                    if let alternativeURL {
+                        pillButton("Try \(alternativeURL.pathExtension.uppercased())", icon: "arrow.triangle.2.circlepath") {
+                            play(alternativeURL)
+                        }
+                    }
+                    Spacer()
+                    if canSwitch {
+                        Text("Swipe ← → to change channel")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+        }
+    }
+
+    private func sidePanel(height: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            Color.black.opacity(0.35)
+                .contentShape(Rectangle())
+                .onTapGesture { withAnimation(.snappy) { showList = false } }
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(lineupTitle)
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        Text("\(lineup.count) channels")
+                            .font(.system(size: 12))
+                            .foregroundStyle(VeyloTheme.textTertiary)
+                    }
+                    Spacer()
+                    circleButton("xmark", size: 32, label: "Close channel list") {
+                        withAnimation(.snappy) { showList = false }
+                    }
+                }
+                .padding(14)
+                channelList(compact: true)
+            }
+            .frame(width: 340)
+            .frame(maxHeight: .infinity)
+            .background(.ultraThinMaterial)
+            .background(Color.black.opacity(0.6))
+            .environment(\.colorScheme, .dark)
+        }
+        .ignoresSafeArea()
+    }
+
+    // MARK: Channel list
+
+    private func channelList(compact: Bool) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if !compact {
+                        HStack {
+                            Text(canSwitch ? "More in \(lineupTitle)" : lineupTitle)
+                                .font(.system(size: 17, weight: .bold))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                            Spacer()
+                            Text("\(lineup.count)")
+                                .font(.system(size: 13))
+                                .foregroundStyle(VeyloTheme.textTertiary)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 14)
+                        .padding(.bottom, 6)
+                    }
+                    ForEach(lineup) { item in
+                        channelRow(item, compact: compact).id(item.id)
+                    }
+                }
+                .padding(.bottom, 24)
+            }
+            .onAppear { proxy.scrollTo(channel.id, anchor: .center) }
+            .onChange(of: channel.id) { _, id in
+                withAnimation(.snappy) { proxy.scrollTo(id, anchor: .center) }
+            }
+        }
+    }
+
+    private func channelRow(_ item: PlaylistChannel, compact: Bool) -> some View {
+        let current = item.id == channel.id
+        return Button { switchTo(item) } label: {
+            HStack(spacing: 12) {
+                ChannelArtwork(channel: item, cornerRadius: 8, nameSize: 9, logoPadding: 5)
+                    .frame(width: compact ? 72 : 88, height: compact ? 41 : 50)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.title)
+                        .font(.system(size: 15, weight: current ? .bold : .medium))
+                        .foregroundStyle(.white.opacity(current ? 1 : 0.85))
+                        .lineLimit(1)
+                    if current {
+                        HStack(spacing: 5) {
+                            Image(systemName: "waveform").font(.system(size: 10, weight: .bold))
+                            Text("Now playing")
+                        }
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(VeyloTheme.live)
+                    } else if let quality = item.quality {
+                        Text(quality)
+                            .font(.system(size: 12))
+                            .foregroundStyle(VeyloTheme.textTertiary)
+                    }
                 }
                 Spacer(minLength: 0)
             }
-            HStack(spacing: 10) {
-                controlTile(paused ? "Play" : "Pause", icon: paused ? "play.fill" : "pause.fill", prominent: true) {
-                    paused.toggle()
-                }
-                controlTile("Reload", icon: "arrow.clockwise") { reload() }
-                controlTile(showsFavorite ? "Saved" : "Favorite", icon: showsFavorite ? "heart.fill" : "heart") {
-                    toggleFavorite()
-                }
-                controlTile("Full", icon: "arrow.up.left.and.arrow.down.right") { enterFullScreen() }
-            }
-            if let alternativeURL {
-                Button { play(alternativeURL) } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                        Text("Having trouble? Try \(alternativeURL.pathExtension.uppercased()) stream")
-                            .lineLimit(1)
-                        Spacer(minLength: 4)
-                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold))
-                    }
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(VeyloTheme.textSecondary)
-                    .padding(.horizontal, 16)
-                    .frame(height: 50)
-                    .background(VeyloTheme.fill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                }
-                .buttonStyle(VeyloPressStyle())
-            }
-            Label("Rotate your iPhone for full screen", systemImage: "rectangle.landscape.rotate")
-                .font(.system(size: 12))
-                .foregroundStyle(VeyloTheme.textTertiary)
+            .padding(.horizontal, compact ? 14 : 16)
+            .padding(.vertical, 8)
+            .background(current ? Color.white.opacity(0.08) : Color.clear)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 22)
+        .buttonStyle(.plain)
     }
 
+    // MARK: Pieces
+
     @ViewBuilder private var statusBadge: some View {
-        if isLive {
+        if isLive && !paused {
             HStack(spacing: 5) {
                 Circle().fill(.white).frame(width: 6, height: 6)
                 Text("LIVE")
@@ -218,104 +520,53 @@ struct PlaybackView: View {
             .tracking(0.8)
             .foregroundStyle(.white)
             .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.vertical, 3)
             .background(VeyloTheme.live, in: Capsule())
         } else {
-            Text(status)
+            Text(paused ? "Paused" : (isFailed ? "Not playing" : "Loading…"))
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(isFailed ? Color.yellow : VeyloTheme.textSecondary)
                 .lineLimit(1)
         }
     }
 
-    private func controlTile(_ title: String, icon: String, prominent: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 7) {
-                Image(systemName: icon).font(.system(size: 19, weight: .semibold))
-                Text(title).font(.system(size: 12, weight: .semibold))
-            }
-            .foregroundStyle(prominent ? Color.black : Color.white)
-            .frame(maxWidth: .infinity)
-            .frame(height: 68)
-            .background(prominent ? Color.white : VeyloTheme.fill,
-                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }
-        .buttonStyle(VeyloPressStyle())
+    private func qualityBadge(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 9, weight: .heavy))
+            .foregroundStyle(.black)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(Color.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
     }
 
-    // MARK: Full screen
-
-    private var fullControls: some View {
-        ZStack {
-            VStack(spacing: 0) {
-                LinearGradient(colors: [.black.opacity(0.75), .clear], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 150)
-                Spacer()
-                LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 120)
-            }
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
-
-            VStack {
-                HStack(spacing: 12) {
-                    circleButton("xmark", label: "Close player", dark: true) { dismiss() }
-                    VStack(alignment: .leading, spacing: 4) {
-                        statusBadge
-                        Text(channel.title)
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                    circleButton(showsFavorite ? "heart.fill" : "heart",
-                                 label: showsFavorite ? "Remove favorite" : "Add favorite", dark: true) {
-                        toggleFavorite()
-                    }
-                    if immersive {
-                        circleButton("arrow.down.right.and.arrow.up.left", label: "Exit full screen", dark: true) {
-                            withAnimation(.easeInOut(duration: 0.25)) { immersive = false }
-                        }
-                    }
-                }
-                Spacer()
-                HStack(spacing: 40) {
-                    roundControl("arrow.clockwise", size: 54, label: "Reload") { reload() }
-                    roundControl(paused ? "play.fill" : "pause.fill", size: 74, label: paused ? "Play" : "Pause") {
-                        paused.toggle()
-                    }
-                    if let alternativeURL {
-                        roundControl("arrow.triangle.2.circlepath", size: 54,
-                                     label: "Try \(alternativeURL.pathExtension.uppercased()) stream") {
-                            play(alternativeURL)
-                        }
-                    } else {
-                        Color.clear.frame(width: 54, height: 54)
-                    }
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-        }
-    }
-
-    private func circleButton(_ icon: String, label: String, dark: Bool, action: @escaping () -> Void) -> some View {
+    private func transportButton(_ icon: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 19, weight: .semibold))
                 .foregroundStyle(.white)
-                .frame(width: 42, height: 42)
-                .background(dark ? Color.black.opacity(0.5) : VeyloTheme.fill, in: Circle())
+                .frame(width: 46, height: 46)
+                .background(VeyloTheme.fill, in: Circle())
         }
-        .buttonStyle(VeyloPressStyle(scale: 0.92))
+        .buttonStyle(VeyloPressStyle(scale: 0.88))
+        .accessibilityLabel(label)
+    }
+
+    private func circleButton(_ icon: String, size: CGFloat, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: size * 0.38, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: size, height: size)
+                .background(Color.black.opacity(0.5), in: Circle())
+        }
+        .buttonStyle(VeyloPressStyle(scale: 0.9))
         .accessibilityLabel(label)
     }
 
     private func roundControl(_ icon: String, size: CGFloat, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: size * 0.38, weight: .bold))
+                .font(.system(size: size * 0.36, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: size, height: size)
                 .background(.black.opacity(0.5), in: Circle())
@@ -325,7 +576,24 @@ struct PlaybackView: View {
         .accessibilityLabel(label)
     }
 
-    // MARK: Playback actions (unchanged behavior)
+    private func pillButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .frame(height: 34)
+                .background(.black.opacity(0.5), in: Capsule())
+        }
+        .buttonStyle(VeyloPressStyle())
+    }
+
+    // MARK: Actions
+
+    private func toggleFavorite() {
+        favoriteOverrides[channel.key] = !showsFavorite
+        onToggleFavorite(channel)
+    }
 
     private func enterFullScreen() {
         withAnimation(.easeInOut(duration: 0.25)) {
@@ -334,12 +602,30 @@ struct PlaybackView: View {
         }
     }
 
+    private func step(_ delta: Int) {
+        guard canSwitch else { return }
+        let index = lineup.firstIndex { $0.id == channel.id } ?? 0
+        let next = (index + delta + lineup.count) % lineup.count
+        switchTo(lineup[next])
+        withAnimation { toast = lineup[next].title }
+    }
+
+    private func switchTo(_ next: PlaylistChannel) {
+        guard next.id != channel.id else { return }
+        channel = next
+        play(next.url)
+        onChannelChange(next)
+    }
+
+    // MARK: Playback actions (same behavior as before)
+
     private func reload() { play(currentURL ?? url) }
 
     private func play(_ nextURL: URL) {
         currentURL = nextURL
         paused = false
         status = "Loading channel…"
+        lastLive = .distantPast
         playbackID = UUID()
     }
 }

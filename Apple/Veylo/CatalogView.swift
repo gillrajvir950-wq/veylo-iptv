@@ -125,9 +125,11 @@ struct CatalogView: View {
         .fullScreenCover(item: $nowPlaying) { item in
             PlaybackView(
                 channel: item.channel,
-                subtitle: subtitle(for: item.channel, showsCategory: true) ?? "",
-                isFavorite: favoriteKeys.contains(item.channel.key),
-                onToggleFavorite: { toggleFavorite(item.channel) }
+                lineup: lineup(for: item.channel),
+                subtitle: { subtitle(for: $0, showsCategory: true) ?? "" },
+                isFavorite: { favoriteKeys.contains($0.key) },
+                onToggleFavorite: { toggleFavorite($0) },
+                onChannelChange: { recordRecent($0) }
             )
             .preferredColorScheme(.dark)
         }
@@ -613,13 +615,25 @@ struct CatalogView: View {
 
     private func play(_ channel: PlaylistChannel) {
         searchFocused = false
+        recordRecent(channel)
+        nowPlaying = NowPlaying(channel: channel)
+    }
+
+    /// Channels the player can switch between: the playing channel's category.
+    private func lineup(for channel: PlaylistChannel) -> [PlaylistChannel] {
+        let filtered = slice.channels(inCategory: channel.category)
+        if filtered.contains(where: { $0.id == channel.id }) { return filtered }
+        let all = catalog.slice(country: nil).channels(inCategory: channel.category)
+        return all.isEmpty ? [channel] : all
+    }
+
+    private func recordRecent(_ channel: PlaylistChannel) {
         if !channel.key.isEmpty {
             recentKeys.removeAll { $0 == channel.key }
             recentKeys.insert(channel.key, at: 0)
             if recentKeys.count > Self.recentLimit { recentKeys.removeLast(recentKeys.count - Self.recentLimit) }
             recentKeysRaw = recentKeys.joined(separator: ",")
         }
-        nowPlaying = NowPlaying(channel: channel)
     }
 
     private func removeRecent(_ channel: PlaylistChannel) {

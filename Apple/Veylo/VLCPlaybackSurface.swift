@@ -76,6 +76,16 @@ struct VLCPlaybackSurface: UIViewRepresentable {
             }
         }
 
+        /// Video time only advances when frames are actually playing, so this is a reliable
+        /// "Live" signal even when VLC keeps sending buffering states during playback.
+        /// Reporting only — playback startup and control are unchanged.
+        func mediaPlayerTimeChanged(_ notification: Notification!) {
+            guard player.state != .paused, player.state != .error else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.reporter?("Live")
+            }
+        }
+
         func stop() {
             reporter = nil
             player.stop()
