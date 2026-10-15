@@ -47,6 +47,8 @@ struct PlaybackView: View {
     @State private var showList = false
     @State private var aspect: VideoAspect = .fit
     @State private var toast: String?
+    @State private var programmes: [EPGProgram] = []
+    @ObservedObject private var session = ProviderSession.shared
 
     init(channel: PlaylistChannel,
          lineup: [PlaylistChannel],
@@ -138,6 +140,97 @@ struct PlaybackView: View {
         }
         .preferredColorScheme(.dark)
         .sensoryFeedback(.selection, trigger: channel.id)
+        .task(id: channel.id) { await loadGuide() }
+        .onChange(of: isFailed) { _, failed in
+            if failed { Task { await session.refreshAccount() } }
+        }
+    }
+
+    // MARK: TV guide (Xtream short EPG)
+
+    private var nowProgramme: EPGProgram? {
+        let now = Date()
+        return programmes.first { $0.start <= now && $0.end > now }
+    }
+
+    private var nextProgramme: EPGProgram? {
+        let after = nowProgramme?.end ?? Date()
+        return programmes.first { $0.start >= after.addingTimeInterval(-60) && $0.id != nowProgramme?.id }
+    }
+
+    @MainActor private func loadGuide() async {
+        programmes = []
+        while !Task.isCancelled {
+            let list = await session.programmes(for: channel)
+            guard !Task.isCancelled else { return }
+            programmes = list
+            let now = Date()
+            let untilChange = list.first { $0.end > now }?.end.timeIntervalSince(now) ?? 900
+            try? await Task.sleep(for: .seconds(min(max(untilChange + 5, 60), 1800)))
+        }
+    }
+
+    private static func clock(_ date: Date) -> String {
+        date.formatted(date: .omitted, time: .shortened)
+    }
+
+    @ViewBuilder private var guideCard: some View {
+        if let now = nowProgramme {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text("NOW")
+                        .font(.system(size: 10, weight: .heavy))
+                        .tracking(0.8)
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    Text(now.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text("\(Self.clock(now.start)) – \(Self.clock(now.end))")
+                        .font(.system(size: 12).monospacedDigit())
+                        .foregroundStyle(VeyloTheme.textTertiary)
+                }
+                TimelineView(.periodic(from: .now, by: 30)) { context in
+                    ProgressView(value: now.progress(at: context.date))
+                        .tint(.white)
+                }
+                if let next = nextProgramme {
+                    HStack(spacing: 8) {
+                        Text("NEXT")
+                            .font(.system(size: 10, weight: .heavy))
+                            .tracking(0.8)
+                            .foregroundStyle(VeyloTheme.textSecondary)
+                        Text(next.title)
+                            .font(.system(size: 14))
+                            .foregroundStyle(VeyloTheme.textSecondary)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        Text(Self.clock(next.start))
+                            .font(.system(size: 12).monospacedDigit())
+                            .foregroundStyle(VeyloTheme.textTertiary)
+                    }
+                }
+            }
+            .padding(12)
+            .background(VeyloTheme.fill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+        }
+    }
+
+    /// Why a stream may not start, from the provider's subscription details.
+    private var failureHint: String? {
+        guard let info = session.account else { return nil }
+        if info.isExpired { return "Your subscription has expired." }
+        if !info.isActive { return "Your provider account is \((info.status ?? "inactive").lowercased())." }
+        if info.connectionsFull {
+            return "All \(info.maxConnections ?? 1) connection\(info.maxConnections == 1 ? " is" : "s are") in use — another device may be watching."
+        }
+        return nil
     }
 
     // MARK: Video
@@ -206,6 +299,12 @@ struct PlaybackView: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
+                if let failureHint {
+                    Text(failureHint)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.yellow)
+                        .multilineTextAlignment(.center)
+                }
                 HStack(spacing: 10) {
                     Button { reload() } label: {
                         Label("Reload", systemImage: "arrow.clockwise")
@@ -285,6 +384,8 @@ struct PlaybackView: View {
             .padding(.horizontal, 16)
             .padding(.top, 14)
 
+            guideCard
+
             HStack(spacing: 0) {
                 transportButton("arrow.clockwise", label: "Reload") { reload() }
                 Spacer()
@@ -355,6 +456,12 @@ struct PlaybackView: View {
                             .font(.system(size: 18, weight: .bold))
                             .foregroundStyle(.white)
                             .lineLimit(1)
+                        if let now = nowProgramme {
+                            Text("Now: \(now.title)")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.white.opacity(0.7))
+                                .lineLimit(1)
+                        }
                     }
                     Spacer()
                     circleButton(aspect.icon, size: 40, label: "Aspect: \(aspect.rawValue)") {

@@ -77,6 +77,10 @@ struct MainTabView: View {
         .sensoryFeedback(.selection, trigger: tab)
         .task { await LogoDirectory.shared.prepare() }
         .task {
+            ProviderSession.shared.start(client: library.client)
+            await ProviderSession.shared.refreshAccount()
+        }
+        .task {
             // Get Movies and Series ready in the background (instant when saved on the device).
             try? await Task.sleep(for: .seconds(1.5))
             await library.load(.movie)
@@ -157,6 +161,7 @@ struct SettingsView: View {
     @AppStorage(LibraryKeys.seriesList) private var seriesListRaw = ""
     @AppStorage(LibraryKeys.recentSeries) private var recentSeriesRaw = ""
     @AppStorage(VODProgressStore.defaultsKey) private var progressData = Data()
+    @ObservedObject private var session = ProviderSession.shared
     @State private var pending: PendingAction?
 
     private enum PendingAction: String, Identifiable {
@@ -204,6 +209,10 @@ struct SettingsView: View {
                 LabeledContent("Live channels", value: account.channelCount.formatted())
             } header: {
                 Text("Account")
+            }
+
+            if session.hasProvider {
+                subscriptionSection
             }
 
             Section {
@@ -263,6 +272,59 @@ struct SettingsView: View {
             Button(action.button, role: .destructive) { perform(action) }
             Button("Cancel", role: .cancel) {}
         }
+    }
+
+    private var subscriptionSection: some View {
+        Section {
+            if let info = session.account {
+                LabeledContent("Status") {
+                    Text(Self.statusText(info))
+                        .foregroundStyle(info.isExpired || !info.isActive ? Color.red : Color.green)
+                }
+                LabeledContent("Expires", value: Self.expiryText(info.expires))
+                if let max = info.maxConnections, max > 0 {
+                    LabeledContent("Connections") {
+                        Text("\(info.activeConnections ?? 0) of \(max) in use")
+                            .foregroundStyle(info.connectionsFull ? Color.orange : VeyloTheme.textSecondary)
+                    }
+                }
+                if info.isTrial {
+                    LabeledContent("Plan", value: "Trial")
+                }
+            } else if session.loadingAccount {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Checking subscription…").foregroundStyle(VeyloTheme.textSecondary)
+                }
+            } else if let error = session.accountError {
+                Text("Couldn’t load subscription details. \(error)")
+                    .font(.system(size: 14))
+                    .foregroundStyle(VeyloTheme.textSecondary)
+            }
+            Button { Task { await session.refreshAccount() } } label: {
+                Label("Refresh", systemImage: "arrow.clockwise").foregroundStyle(.white)
+            }
+            .disabled(session.loadingAccount)
+        } header: {
+            Text("Subscription")
+        } footer: {
+            Text("When all connections are in use, channels won’t start until another device stops watching.")
+        }
+        .task { await session.refreshAccount() }
+    }
+
+    private static func statusText(_ info: ProviderAccountInfo) -> String {
+        if info.isExpired { return "Expired" }
+        guard let status = info.status, !status.isEmpty else { return "Active" }
+        return status.prefix(1).uppercased() + status.dropFirst().lowercased()
+    }
+
+    private static func expiryText(_ date: Date?) -> String {
+        guard let date else { return "Never" }
+        let days = Calendar.current.dateComponents([.day], from: Date(), to: date).day ?? 0
+        let formatted = date.formatted(date: .abbreviated, time: .omitted)
+        if days < 0 { return formatted }
+        return "\(formatted) · \(days) day\(days == 1 ? "" : "s") left"
     }
 
     private func settingsButton(_ title: String, icon: String, action: PendingAction) -> some View {

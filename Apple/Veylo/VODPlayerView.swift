@@ -13,6 +13,16 @@ final class VODPlayback: NSObject, ObservableObject {
     @Published private(set) var time: Double = 0
     @Published private(set) var duration: Double = 0
 
+    struct MediaTrack: Identifiable, Hashable {
+        let id: Int32
+        let name: String
+    }
+
+    @Published private(set) var audioTracks: [MediaTrack] = []
+    @Published private(set) var subtitleTracks: [MediaTrack] = []
+    @Published private(set) var currentAudio: Int32 = -1
+    @Published private(set) var currentSubtitle: Int32 = -1
+
     #if canImport(MobileVLCKit)
     private let player = VLCMediaPlayer()
     #endif
@@ -76,6 +86,47 @@ final class VODPlayback: NSObject, ObservableObject {
         #endif
     }
 
+    /// Reads the audio languages and subtitles VLC found in the file.
+    func refreshTracks() {
+        #if canImport(MobileVLCKit)
+        let audio = Self.tracks(names: player.audioTrackNames, ids: player.audioTrackIndexes)
+            .filter { $0.id >= 0 }
+        let subtitles = Self.tracks(names: player.videoSubTitlesNames, ids: player.videoSubTitlesIndexes)
+        let audioID = player.currentAudioTrackIndex
+        let subtitleID = player.currentVideoSubTitleIndex
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if self.audioTracks != audio { self.audioTracks = audio }
+            if self.subtitleTracks != subtitles { self.subtitleTracks = subtitles }
+            self.currentAudio = audioID
+            self.currentSubtitle = subtitleID
+        }
+        #endif
+    }
+
+    func selectAudio(_ id: Int32) {
+        #if canImport(MobileVLCKit)
+        player.currentAudioTrackIndex = id
+        currentAudio = id
+        #endif
+    }
+
+    func selectSubtitle(_ id: Int32) {
+        #if canImport(MobileVLCKit)
+        player.currentVideoSubTitleIndex = id
+        currentSubtitle = id
+        #endif
+    }
+
+    private static func tracks(names: [Any]?, ids: [Any]?) -> [MediaTrack] {
+        guard let names, let ids else { return [] }
+        return zip(names, ids).compactMap { name, id in
+            guard let number = id as? NSNumber else { return nil }
+            let label = (name as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Track \(number.intValue)"
+            return MediaTrack(id: number.int32Value, name: label)
+        }
+    }
+
     func stop() {
         #if canImport(MobileVLCKit)
         player.delegate = nil
@@ -97,6 +148,7 @@ extension VODPlayback: VLCMediaPlayerDelegate {
         case .error: next = .failed
         default: next = nil
         }
+        if player.state == .playing || player.state == .esAdded { refreshTracks() }
         guard let next else { return }
         DispatchQueue.main.async { [weak self] in
             self?.status = next
@@ -221,6 +273,9 @@ struct VODPlayerView: View {
                         }
                     }
                     Spacer()
+                    if playback.audioTracks.count > 1 || !playback.subtitleTracks.isEmpty {
+                        trackMenu
+                    }
                 }
                 Spacer()
                 HStack(spacing: 44) {
@@ -238,6 +293,46 @@ struct VODPlayerView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
+    }
+
+    /// Audio language and subtitle picker.
+    private var trackMenu: some View {
+        Menu {
+            if playback.audioTracks.count > 1 {
+                Section("Audio") {
+                    ForEach(playback.audioTracks) { track in
+                        Button { playback.selectAudio(track.id) } label: {
+                            if track.id == playback.currentAudio {
+                                Label(track.name, systemImage: "checkmark")
+                            } else {
+                                Text(track.name)
+                            }
+                        }
+                    }
+                }
+            }
+            if !playback.subtitleTracks.isEmpty {
+                Section("Subtitles") {
+                    ForEach(playback.subtitleTracks) { track in
+                        Button { playback.selectSubtitle(track.id) } label: {
+                            if track.id == playback.currentSubtitle {
+                                Label(track.id < 0 ? "Off" : track.name, systemImage: "checkmark")
+                            } else {
+                                Text(track.id < 0 ? "Off" : track.name)
+                            }
+                        }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "captions.bubble")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 40, height: 40)
+                .background(.black.opacity(0.45), in: Circle())
+        }
+        .onAppear { playback.refreshTracks() }
+        .accessibilityLabel("Audio and subtitles")
     }
 
     private var scrubber: some View {

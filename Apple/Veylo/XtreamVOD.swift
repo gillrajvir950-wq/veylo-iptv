@@ -78,6 +78,46 @@ struct SeriesDetails {
     func episodes(in season: Int) -> [SeriesEpisode] { episodes.filter { $0.season == season } }
 }
 
+struct ProviderAccountInfo {
+    let status: String?
+    let expires: Date?
+    let isTrial: Bool
+    let activeConnections: Int?
+    let maxConnections: Int?
+
+    var isActive: Bool { status == nil || status?.lowercased() == "active" }
+    var isExpired: Bool { (expires.map { $0 < Date() } ?? false) || status?.lowercased() == "expired" }
+    /// All allowed streams are in use (another device is probably watching).
+    var connectionsFull: Bool {
+        guard let active = activeConnections, let max = maxConnections, max > 0 else { return false }
+        return active >= max
+    }
+}
+
+struct EPGProgram: Identifiable, Hashable {
+    let title: String
+    let summary: String?
+    let start: Date
+    let end: Date
+
+    var id: String { "\(start.timeIntervalSince1970)-\(title)" }
+
+    func progress(at date: Date = Date()) -> Double {
+        let total = end.timeIntervalSince(start)
+        guard total > 0 else { return 0 }
+        return min(1, max(0, date.timeIntervalSince(start) / total))
+    }
+
+    static func decode(_ value: Any?) -> String? {
+        guard let raw = JSONValue.string(value) else { return nil }
+        if let data = Data(base64Encoded: raw), let text = String(data: data, encoding: .utf8) {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return raw
+    }
+}
+
 // MARK: - API (movies and series). Live TV requests and URLs stay in XtreamClient.swift.
 
 extension XtreamClient {
@@ -124,6 +164,41 @@ extension XtreamClient {
         return digest.prefix(12).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Subscription status from the provider (player_api.php without an action).
+    func accountInfo() async throws -> ProviderAccountInfo {
+        let data = try await vodData(action: nil)
+        guard let root = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any],
+              let info = root["user_info"] as? [String: Any] else { throw XtreamError.invalidResponse }
+        let expiry = JSONValue.double(info["exp_date"]).flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil }
+        return ProviderAccountInfo(
+            status: JSONValue.string(info["status"]),
+            expires: expiry,
+            isTrial: JSONValue.int(info["is_trial"]) == 1,
+            activeConnections: JSONValue.int(info["active_cons"]),
+            maxConnections: JSONValue.int(info["max_connections"])
+        )
+    }
+
+    /// Now / next programmes for a live channel (titles are base64 in the Xtream API).
+    func shortEPG(streamID: Int, limit: Int = 4) async throws -> [EPGProgram] {
+        let data = try await vodData(action: "get_short_epg", extra: [
+            URLQueryItem(name: "stream_id", value: String(streamID)),
+            URLQueryItem(name: "limit", value: String(limit))
+        ])
+        guard let root = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any] else {
+            return []
+        }
+        return VODParser.objects(root["epg_listings"]).compactMap { entry -> EPGProgram? in
+            guard let start = JSONValue.double(entry["start_timestamp"]),
+                  let end = JSONValue.double(entry["stop_timestamp"] ?? entry["end_timestamp"]),
+                  end > start,
+                  let title = EPGProgram.decode(entry["title"]) else { return nil }
+            return EPGProgram(title: title, summary: EPGProgram.decode(entry["description"]),
+                              start: Date(timeIntervalSince1970: start), end: Date(timeIntervalSince1970: end))
+        }
+        .sorted { $0.start < $1.start }
+    }
+
     func movieURL(for item: VODItem) throws -> URL {
         try mediaURL(kind: "movie", id: String(item.id), ext: item.containerExtension)
     }
@@ -143,16 +218,17 @@ extension XtreamClient {
         return base
     }
 
-    private func vodData(action: String, extra: [URLQueryItem] = []) async throws -> Data {
+    private func vodData(action: String?, extra: [URLQueryItem] = []) async throws -> Data {
         guard ["http", "https"].contains(account.server.scheme?.lowercased() ?? ""),
               var components = URLComponents(url: account.server, resolvingAgainstBaseURL: false) else {
             throw XtreamError.invalidServer
         }
         let trimmed = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         components.path = trimmed.isEmpty ? "/player_api.php" : "/\(trimmed)/player_api.php"
-        components.queryItems = [URLQueryItem(name: "username", value: account.username),
-                                 URLQueryItem(name: "password", value: account.password),
-                                 URLQueryItem(name: "action", value: action)] + extra
+        var items: [URLQueryItem] = [URLQueryItem(name: "username", value: account.username),
+                                     URLQueryItem(name: "password", value: account.password)]
+        if let action { items.append(URLQueryItem(name: "action", value: action)) }
+        components.queryItems = items + extra
         guard let url = components.url else { throw XtreamError.invalidServer }
         var request = URLRequest(url: url)
         request.timeoutInterval = 90

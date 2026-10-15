@@ -20,7 +20,7 @@ struct RootView: View {
     @State private var loading = false
     @State private var errorMessage: String?
 
-    private let version = "0.0.24"
+    private let version = "0.0.25"
 
     var body: some View {
         NavigationStack {
@@ -107,6 +107,7 @@ struct RootView: View {
     }
 
     private func signOut() {
+        Task { @MainActor in ProviderSession.shared.reset() }
         channels = []
         catalog = .empty
         client = nil
@@ -165,11 +166,15 @@ struct RootView: View {
                 password = ""
             }
         } catch {
-            if autoLogin {
+            if autoLogin, (error as? XtreamError) == .unauthorized {
+                // Only a rejected password removes the saved one.
                 staySignedIn = false
                 VeyloCredentials.deletePassword()
                 password = ""
-                errorMessage = "Auto-login failed. Please enter your password to reconnect. " + error.localizedDescription
+                errorMessage = "Your provider rejected the saved password. Please enter it again."
+            } else if autoLogin {
+                // Offline, timeout or provider down: keep the saved password so the next try works.
+                errorMessage = "Couldn’t reach your provider. Check your internet connection and tap Connect to try again."
             } else {
                 errorMessage = error.localizedDescription
             }
