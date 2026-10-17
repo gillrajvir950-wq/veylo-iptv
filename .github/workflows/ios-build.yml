@@ -11,6 +11,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Select newest Xcode (iOS 26 SDK for Liquid Glass)
+        run: |
+          set -euo pipefail
+          ls -d /Applications/Xcode*.app || true
+          NEWEST=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -v -i beta | sort -V | tail -1 || true)
+          if [ -n "$NEWEST" ]; then sudo xcode-select -s "$NEWEST"; fi
+          xcodebuild -version
+          xcrun swift --version
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate Xcode project
