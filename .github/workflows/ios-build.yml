@@ -29,7 +29,11 @@ jobs:
           pod install
       - name: Compile for iOS Simulator
         run: |
-          xcodebuild -workspace Veylo.xcworkspace -scheme Veylo -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+          set +e
+          xcodebuild -workspace Veylo.xcworkspace -scheme Veylo -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$RUNNER_TEMP/sim-build.log"
+          STATUS=${PIPESTATUS[0]}
+          grep -E "error:|error :" "$RUNNER_TEMP/sim-build.log" | sort -u | head -25 | while IFS= read -r line; do echo "::error title=Compile::${line}"; done
+          exit $STATUS
       - name: Build unsigned iPhone app
         run: |
           xcodebuild -workspace Veylo.xcworkspace -scheme Veylo -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/VeyloBuild" CODE_SIGNING_ALLOWED=NO build
