@@ -13,17 +13,12 @@
                     <view key="view" contentMode="scaleToFill" id="launchView">
                         <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
                         <subviews>
-                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFill" image="BrandIcon" translatesAutoresizingMaskIntoConstraints="NO" id="brandIcon">
+                            <imageView userInteractionEnabled="NO" contentMode="scaleAspectFit" image="LaunchIcon" translatesAutoresizingMaskIntoConstraints="NO" id="brandIcon">
                                 <rect key="frame" x="148.66666666666666" y="378" width="96" height="96"/>
                                 <constraints>
                                     <constraint firstAttribute="width" constant="96" id="brandW"/>
                                     <constraint firstAttribute="height" constant="96" id="brandH"/>
                                 </constraints>
-                                <userDefinedRuntimeAttributes>
-                                    <userDefinedRuntimeAttribute type="number" keyPath="layer.cornerRadius">
-                                        <real key="value" value="21.6"/>
-                                    </userDefinedRuntimeAttribute>
-                                </userDefinedRuntimeAttributes>
                             </imageView>
                         </subviews>
                         <viewLayoutGuide key="safeArea" id="safeArea"/>
@@ -40,6 +35,6 @@
         </scene>
     </scenes>
     <resources>
-        <image name="BrandIcon" width="512" height="512"/>
+        <image name="LaunchIcon" width="96" height="96"/>
     </resources>
 </document>
