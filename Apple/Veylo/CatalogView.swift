@@ -237,7 +237,7 @@ struct CatalogView: View {
             .padding(.horizontal, 12)
             .frame(height: 38)
             .frame(maxWidth: 170)
-            .veyloGlassCapsule(interactive: true)
+            .veyloGlassCapsule(interactive: false)
         }
         .accessibilityLabel("Country filter")
     }
@@ -264,7 +264,7 @@ struct CatalogView: View {
         }
         .padding(.horizontal, 16)
         .frame(height: 46)
-        .veyloGlassCapsule(interactive: true)
+        .veyloGlassCapsule(interactive: false)
     }
 
     // MARK: Type tabs (pinned while scrolling)
@@ -318,7 +318,7 @@ struct CatalogView: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(VeyloPressStyle())
-        .veyloGlassCapsule(interactive: true)
+        .veyloGlassCapsule(interactive: false)
     }
 
     // MARK: Content

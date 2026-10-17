@@ -23,7 +23,7 @@ extension View {
     }
 
     /// Circular glass for round icon buttons.
-    func veyloGlassCircle(interactive: Bool = true, tint: Color? = nil) -> some View {
+    func veyloGlassCircle(interactive: Bool = false, tint: Color? = nil) -> some View {
         veyloGlass(in: Circle(), interactive: interactive, tint: tint)
     }
 }

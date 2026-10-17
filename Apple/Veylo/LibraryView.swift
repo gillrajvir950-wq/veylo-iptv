@@ -212,7 +212,7 @@ struct LibraryView: View {
             }
             .padding(.horizontal, 16)
             .frame(height: 46)
-            .veyloGlassCapsule(interactive: true)
+            .veyloGlassCapsule(interactive: false)
         }
         .padding(.horizontal, 20)
         .padding(.top, 6)
@@ -247,7 +247,7 @@ struct LibraryView: View {
             .padding(.horizontal, 12)
             .frame(height: 38)
             .frame(maxWidth: 170)
-            .veyloGlassCapsule(interactive: true)
+            .veyloGlassCapsule(interactive: false)
         }
     }
 

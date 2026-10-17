@@ -99,7 +99,7 @@ struct PlaybackView: View {
                 }
                 if !full { portraitTopBar }
                 if full && controlsVisible && !showList {
-                    fullControls.transition(.opacity)
+                    fullControls(narrow: !landscape).transition(.opacity)
                 }
                 if full && showList {
                     sidePanel(height: geometry.size.height)
@@ -347,7 +347,7 @@ struct PlaybackView: View {
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 9)
-                                .veyloGlassCapsule(interactive: true)
+                                .veyloGlassCapsule(interactive: false)
                         }
                     }
                 }
@@ -470,21 +470,27 @@ struct PlaybackView: View {
 
     // MARK: Full screen
 
-    private var fullControls: some View {
+    /// `narrow` = full screen while the phone is upright: the extra buttons move to the bottom row
+    /// so the channel name has room, and ✕ leaves full screen instead of closing the player.
+    private func fullControls(narrow: Bool) -> some View {
         ZStack {
             VStack(spacing: 0) {
                 LinearGradient(colors: [.black.opacity(0.8), .clear], startPoint: .top, endPoint: .bottom)
                     .frame(height: 140)
                 Spacer()
                 LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 110)
+                    .frame(height: narrow ? 150 : 110)
             }
             .ignoresSafeArea()
             .allowsHitTesting(false)
 
             VStack {
                 HStack(spacing: 12) {
-                    circleButton("xmark", size: 40, label: "Close player") { dismiss() }
+                    if narrow && immersive {
+                        circleButton("xmark", size: 40, label: "Exit full screen") { exitFullScreen() }
+                    } else {
+                        circleButton("xmark", size: 40, label: "Close player") { dismiss() }
+                    }
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 8) {
                             statusBadge
@@ -501,54 +507,84 @@ struct PlaybackView: View {
                                 .lineLimit(1)
                         }
                     }
-                    Spacer()
-                    if PiPManager.isSupported {
-                        circleButton("pip.enter", size: 40, label: "Picture in Picture") { startPiP() }
-                    }
-                    circleButton(aspect.icon, size: 40, label: "Aspect: \(aspect.rawValue)") {
-                        aspect = aspect.next
-                        withAnimation { toast = aspect.rawValue }
-                    }
-                    circleButton(showsFavorite ? "heart.fill" : "heart", size: 40,
-                                 label: showsFavorite ? "Remove favorite" : "Add favorite") { toggleFavorite() }
-                    if canSwitch {
-                        circleButton("list.bullet", size: 40, label: "Channels") {
-                            withAnimation(.snappy) { showList = true }
-                        }
-                    }
-                    if immersive {
-                        circleButton("arrow.down.right.and.arrow.up.left", size: 40, label: "Exit full screen") {
-                            withAnimation(.easeInOut(duration: 0.25)) { immersive = false }
-                        }
-                    }
+                    Spacer(minLength: 8)
+                    if !narrow { fullActionButtons }
                 }
                 Spacer()
                 VeyloGlassGroup(spacing: 30) {
-                HStack(spacing: 44) {
-                    roundControl("backward.end.fill", size: 54, label: "Previous channel") { step(-1) }
-                        .opacity(canSwitch ? 1 : 0)
-                        .disabled(!canSwitch)
-                    roundControl(paused ? "play.fill" : "pause.fill", size: 76, label: paused ? "Play" : "Pause") {
-                        paused.toggle()
+                    HStack(spacing: narrow ? 32 : 44) {
+                        roundControl("backward.end.fill", size: 54, label: "Previous channel") { step(-1) }
+                            .opacity(canSwitch ? 1 : 0)
+                            .disabled(!canSwitch)
+                        roundControl(paused ? "play.fill" : "pause.fill", size: 76, label: paused ? "Play" : "Pause") {
+                            paused.toggle()
+                        }
+                        roundControl("forward.end.fill", size: 54, label: "Next channel") { step(1) }
+                            .opacity(canSwitch ? 1 : 0)
+                            .disabled(!canSwitch)
                     }
-                    roundControl("forward.end.fill", size: 54, label: "Next channel") { step(1) }
-                        .opacity(canSwitch ? 1 : 0)
-                        .disabled(!canSwitch)
-                }
                 }
                 Spacer()
-                HStack(spacing: 10) {
-                    pillButton("Reload", icon: "arrow.clockwise") { reload() }
-                    Spacer()
-                    if canSwitch {
-                        Text("Swipe ← → to change channel")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.55))
+                if narrow {
+                    VStack(spacing: 14) {
+                        HStack(spacing: 12) {
+                            fullActionButtons
+                        }
+                        HStack(spacing: 10) {
+                            pillButton("Reload", icon: "arrow.clockwise") { reload() }
+                            Spacer()
+                            if canSwitch {
+                                Text("Swipe ← → to change channel")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.white.opacity(0.55))
+                            }
+                        }
+                    }
+                } else {
+                    HStack(spacing: 10) {
+                        pillButton("Reload", icon: "arrow.clockwise") { reload() }
+                        Spacer()
+                        if canSwitch {
+                            Text("Swipe ← → to change channel")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.white.opacity(0.55))
+                        }
                     }
                 }
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
+        }
+    }
+
+    /// PiP, aspect, favorite, channel list and exit-full-screen buttons.
+    @ViewBuilder private var fullActionButtons: some View {
+        if PiPManager.isSupported {
+            circleButton("pip.enter", size: 40, label: "Picture in Picture") { startPiP() }
+        }
+        circleButton(aspect.icon, size: 40, label: "Aspect: \(aspect.rawValue)") {
+            aspect = aspect.next
+            withAnimation { toast = aspect.rawValue }
+        }
+        circleButton(showsFavorite ? "heart.fill" : "heart", size: 40,
+                     label: showsFavorite ? "Remove favorite" : "Add favorite") { toggleFavorite() }
+        if canSwitch {
+            circleButton("list.bullet", size: 40, label: "Channels") {
+                withAnimation(.snappy) { showList = true }
+            }
+        }
+        if immersive {
+            circleButton("arrow.down.right.and.arrow.up.left", size: 40, label: "Exit full screen") {
+                exitFullScreen()
+            }
+        }
+    }
+
+    private func exitFullScreen() {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            showList = false
+            immersive = false
+            controlsVisible = true
         }
     }
 
@@ -726,7 +762,7 @@ struct PlaybackView: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 14)
                 .frame(height: 36)
-                .veyloGlassCapsule(interactive: true)
+                .veyloGlassCapsule(interactive: false)
         }
         .buttonStyle(VeyloPressStyle())
     }

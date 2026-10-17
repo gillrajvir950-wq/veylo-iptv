@@ -414,7 +414,7 @@ struct VODPlayerView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 20)
                         .frame(height: 40)
-                        .veyloGlassCapsule(interactive: true)
+                        .veyloGlassCapsule(interactive: false)
                 }
             }
             .buttonStyle(VeyloPressStyle())

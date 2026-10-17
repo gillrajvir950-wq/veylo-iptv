@@ -290,7 +290,7 @@ struct SeriesDetailView: View {
                                         .background(season == number ? Color.white : Color.clear, in: Capsule())
                                 }
                                 .buttonStyle(.plain)
-                                .veyloGlassCapsule(interactive: true)
+                                .veyloGlassCapsule(interactive: false)
                             }
                         }
                     }

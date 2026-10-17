@@ -162,7 +162,7 @@ struct FloatingTabBar: View {
             }
         }
         .padding(4)
-        .veyloGlassCapsule(interactive: true)
+        .veyloGlassCapsule(interactive: false)
         .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
         .environment(\.colorScheme, .dark)
         .padding(.horizontal, 20)
@@ -293,7 +293,7 @@ struct SettingsView: View {
                     .contentShape(Capsule())
                 }
                 .buttonStyle(VeyloPressStyle())
-                .veyloGlassCapsule(interactive: true)
+                .veyloGlassCapsule(interactive: false)
 
                 Text("Signing out stops automatic sign-in. Saved providers stay until you remove them.")
                     .font(.system(size: 12))
