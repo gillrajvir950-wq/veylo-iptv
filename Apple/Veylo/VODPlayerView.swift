@@ -302,6 +302,10 @@ struct VODPlayerView: View {
         .onKeyPress(.leftArrow) { playback.skip(-10); return .handled }
         .onKeyPress(.rightArrow) { playback.skip(10); return .handled }
         .onKeyPress(.escape) { close(); return .handled }
+        .onKeyPress(characters: CharacterSet(charactersIn: "fF")) { _ in
+            VeyloPlatform.setWindowFullScreen(!VeyloPlatform.isWindowFullScreen)
+            return .handled
+        }
         #endif
     }
 

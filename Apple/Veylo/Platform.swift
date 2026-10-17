@@ -74,6 +74,30 @@ enum VeyloPlatform {
     static let isMac = false
     #endif
 
+    #if os(macOS)
+    /// The app's main window (not the player sheet).
+    static var mainWindow: NSWindow? {
+        let candidates = NSApp.windows.filter { $0.sheetParent == nil && $0.isVisible }
+        return NSApp.mainWindow.flatMap { $0.sheetParent ?? $0 } ?? candidates.first
+    }
+
+    static var mainWindowSize: CGSize {
+        guard let window = mainWindow else { return CGSize(width: 1280, height: 800) }
+        let size = window.contentLayoutRect.size
+        return CGSize(width: max(size.width, 600), height: max(size.height, 400))
+    }
+
+    static var isWindowFullScreen: Bool {
+        mainWindow?.styleMask.contains(.fullScreen) ?? false
+    }
+
+    /// Real macOS full screen for the app window (the player sheet grows with it).
+    static func setWindowFullScreen(_ on: Bool) {
+        guard let window = mainWindow, window.styleMask.contains(.fullScreen) != on else { return }
+        window.toggleFullScreen(nil)
+    }
+    #endif
+
     /// Keeps the screen awake while a movie plays (iOS only; the Mac handles this itself).
     static func setIdleTimerDisabled(_ disabled: Bool) {
         #if os(iOS)
@@ -162,13 +186,34 @@ extension View {
         #if os(iOS)
         self.fullScreenCover(item: item, content: content)
         #else
-        self.sheet(item: item) { value in
-            content(value)
-                .frame(minWidth: 900, idealWidth: 1280, minHeight: 560, idealHeight: 760)
-        }
+        self.modifier(MacPlayerSheet(item: item, sheetContent: content))
         #endif
     }
 }
+
+#if os(macOS)
+/// Mac: the player opens as a sheet that always covers the whole app window and follows it
+/// when the window is resized or goes full screen.
+private struct MacPlayerSheet<Item: Identifiable, SheetContent: View>: ViewModifier {
+    @Binding var item: Item?
+    let sheetContent: (Item) -> SheetContent
+    @State private var size = VeyloPlatform.mainWindowSize
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(item: $item) { value in
+                sheetContent(value)
+                    .frame(width: size.width, height: size.height)
+                    .onAppear { size = VeyloPlatform.mainWindowSize }
+                    .onDisappear { VeyloPlatform.setWindowFullScreen(false) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { note in
+                guard let window = note.object as? NSWindow, window === VeyloPlatform.mainWindow else { return }
+                size = VeyloPlatform.mainWindowSize
+            }
+    }
+}
+#endif
 
 /// Swipeable featured carousel: paged TabView on iPhone, snapping horizontal scroll on the Mac.
 struct VeyloPager<Data: RandomAccessCollection, Content: View>: View where Data.Element: Identifiable {

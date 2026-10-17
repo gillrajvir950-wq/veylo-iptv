@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 /// How the video fills the screen. Done with view scaling only, so VLC playback is untouched.
 enum VideoAspect: String, CaseIterable {
@@ -51,6 +54,8 @@ struct PlaybackView: View {
     @State private var vlcSuspended = false
     @ObservedObject private var pip = PiPManager.shared
     @ObservedObject private var airplay = AirPlayManager.shared
+    /// Mac: whether the app window is in macOS full screen.
+    @State private var macFullScreen = false
     @ObservedObject private var session = ProviderSession.shared
     @ObservedObject private var guide = XMLTVGuide.shared
 
@@ -149,13 +154,20 @@ struct PlaybackView: View {
             if showList { withAnimation(.snappy) { showList = false } } else { dismiss() }
             return .handled
         }
-        .onKeyPress(characters: CharacterSet(charactersIn: "lLrR")) { press in
-            if press.characters.lowercased() == "l" {
-                withAnimation(.snappy) { showList.toggle() }
-            } else {
-                reload()
+        .onKeyPress(characters: CharacterSet(charactersIn: "lLrRfF")) { press in
+            switch press.characters.lowercased() {
+            case "l": withAnimation(.snappy) { showList.toggle() }
+            case "f": toggleMacFullScreen()
+            default: reload()
             }
             return .handled
+        }
+        .onAppear { macFullScreen = VeyloPlatform.isWindowFullScreen }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
+            macFullScreen = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
+            macFullScreen = false
         }
         #endif
         .task(id: "\(channel.id)-\(guide.revision)") { await loadGuide() }
@@ -591,7 +603,19 @@ struct PlaybackView: View {
                 exitFullScreen()
             }
         }
+        #if os(macOS)
+        circleButton(macFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                     size: 40, label: macFullScreen ? "Exit full screen" : "Full screen") {
+            toggleMacFullScreen()
+        }
+        #endif
     }
+
+    #if os(macOS)
+    private func toggleMacFullScreen() {
+        VeyloPlatform.setWindowFullScreen(!VeyloPlatform.isWindowFullScreen)
+    }
+    #endif
 
     private func exitFullScreen() {
         withAnimation(.easeInOut(duration: 0.25)) {
