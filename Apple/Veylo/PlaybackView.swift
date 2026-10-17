@@ -51,6 +51,7 @@ struct PlaybackView: View {
     @State private var vlcSuspended = false
     @ObservedObject private var pip = PiPManager.shared
     @ObservedObject private var session = ProviderSession.shared
+    @ObservedObject private var guide = XMLTVGuide.shared
 
     init(channel: PlaylistChannel,
          lineup: [PlaylistChannel],
@@ -136,7 +137,7 @@ struct PlaybackView: View {
         }
         .preferredColorScheme(.dark)
         .sensoryFeedback(.selection, trigger: channel.id)
-        .task(id: channel.id) { await loadGuide() }
+        .task(id: "\(channel.id)-\(guide.revision)") { await loadGuide() }
         .onChange(of: isFailed) { _, failed in
             if failed { Task { await session.refreshAccount() } }
         }

@@ -7,6 +7,7 @@ struct LoginView: View {
     @Binding var username: String
     @Binding var password: String
     @Binding var playlistURL: String
+    @Binding var epgURL: String
     @Binding var rememberLogin: Bool
     @Binding var staySignedIn: Bool
     @Binding var useTS: Bool
@@ -18,7 +19,7 @@ struct LoginView: View {
     @State private var revealPassword = false
     @Namespace private var modeNamespace
 
-    private enum Field: Hashable { case server, username, password, playlist }
+    private enum Field: Hashable { case server, username, password, playlist, epg }
 
     private var canConnect: Bool {
         guard !loading else { return false }
@@ -186,10 +187,24 @@ struct LoginView: View {
                     .focused($focused, equals: .playlist)
                     .onSubmit { if canConnect { connect() } }
             }
-            Label("Paste the full M3U / M3U8 playlist link from your provider.", systemImage: "info.circle")
+            inputField(icon: "list.bullet.rectangle.portrait", field: .epg) {
+                TextField("", text: $epgURL, prompt: prompt("EPG / TV guide URL  (optional)"))
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.go)
+                    .focused($focused, equals: .epg)
+                    .onSubmit { if canConnect { connect() } }
+            }
+            Label("Paste the full M3U / M3U8 playlist link. The TV guide link (XMLTV, .xml or .xml.gz) is optional — many playlists include it.", systemImage: "info.circle")
                 .font(.system(size: 12))
                 .foregroundStyle(VeyloTheme.textTertiary)
                 .padding(.horizontal, 4)
+            VStack(spacing: 0) {
+                optionRow("Save this provider", detail: "Kept securely in Keychain · opens automatically", isOn: $staySignedIn)
+            }
+            .padding(.horizontal, 14)
+            .background(VeyloTheme.fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
     }
 

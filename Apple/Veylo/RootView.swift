@@ -14,13 +14,19 @@ struct RootView: View {
     @State private var username = ""
     @State private var password = ""
     @State private var playlistURL = ""
+    @State private var epgURL = ""
     @State private var client: XtreamClient?
     @State private var channels: [PlaylistChannel] = []
     @State private var catalog = ChannelCatalog.empty
     @State private var loading = false
     @State private var errorMessage: String?
+    /// Saved provider used for the current session (nil = typed on the login screen).
+    @State private var currentProfileID: UUID?
+    /// New value per successful connection, so the signed-in screens start fresh after a switch.
+    @State private var sessionID = UUID()
 
-    private let version = "0.0.28"
+    private let version = "0.0.29"
+    private var store: ProviderStore { ProviderStore.shared }
 
     var body: some View {
         NavigationStack {
@@ -33,8 +39,10 @@ struct RootView: View {
                         version: version,
                         account: accountSummary,
                         useTS: $useTS,
-                        onSignOut: signOut
+                        onSignOut: signOut,
+                        onSwitchProvider: switchProvider
                     )
+                    .id(sessionID)
                 } else if autoLoginInProgress {
                     ConnectingView()
                 } else {
@@ -44,12 +52,16 @@ struct RootView: View {
                         username: $username,
                         password: $password,
                         playlistURL: $playlistURL,
+                        epgURL: $epgURL,
                         rememberLogin: $rememberLogin,
                         staySignedIn: $staySignedIn,
                         useTS: $useTS,
                         loading: loading,
                         version: version,
-                        onConnect: { Task { await connect() } }
+                        onConnect: {
+                            currentProfileID = nil
+                            Task { await connect() }
+                        }
                     )
                 }
             }
@@ -67,7 +79,14 @@ struct RootView: View {
             }
             if !attemptedAutoLogin {
                 attemptedAutoLogin = true
-                if staySignedIn, let savedPassword = VeyloCredentials.readPassword(), !savedServer.isEmpty, !savedUsername.isEmpty {
+                if let profile = store.active, let secrets = store.secrets(for: profile.id) {
+                    // A saved provider (Settings › Providers, or "Stay signed in").
+                    fill(from: profile, secrets: secrets)
+                    currentProfileID = profile.id
+                    autoLoginInProgress = true
+                    Task { await connect(autoLogin: true) }
+                } else if staySignedIn, let savedPassword = VeyloCredentials.readPassword(), !savedServer.isEmpty, !savedUsername.isEmpty {
+                    // Older single-account auto-login; moved into a saved provider on success.
                     server = savedServer
                     username = savedUsername
                     password = savedPassword
@@ -92,12 +111,14 @@ struct RootView: View {
     }
 
     private var accountSummary: AccountSummary {
+        let providerName = currentProfileID.flatMap { store.profile($0)?.name }
         if mode == 1 {
             let host = URL(string: playlistURL.trimmingCharacters(in: .whitespacesAndNewlines))?.host
-            return AccountSummary(type: "M3U Playlist", host: host ?? "Playlist", username: nil, channelCount: channels.count)
+            return AccountSummary(type: "M3U Playlist", host: providerName ?? host ?? "Playlist", username: nil,
+                                  channelCount: channels.count)
         }
         let host = URL(string: server.trimmingCharacters(in: .whitespacesAndNewlines))?.host
-        return AccountSummary(type: "Xtream Codes", host: host ?? "Provider",
+        return AccountSummary(type: "Xtream Codes", host: providerName ?? host ?? "Provider",
                               username: username.isEmpty ? nil : username, channelCount: channels.count)
     }
 
@@ -106,14 +127,84 @@ struct RootView: View {
         SHA256.hash(data: Data(text.utf8)).prefix(10).map { String(format: "%02x", $0) }.joined()
     }
 
-    private func signOut() {
-        Task { @MainActor in ProviderSession.shared.reset() }
+    private func fill(from profile: ProviderProfile, secrets: ProviderSecrets) {
+        mode = profile.kind == .xtream ? 0 : 1
+        server = profile.server
+        username = profile.username
+        password = secrets.password ?? ""
+        playlistURL = secrets.playlistURL ?? ""
+        epgURL = secrets.epgURL ?? ""
+    }
+
+    /// Settings › Providers: open another saved provider.
+    private func switchProvider(_ profile: ProviderProfile) {
+        guard let secrets = store.secrets(for: profile.id) else {
+            errorMessage = "This provider’s saved details are missing. Remove it and add it again."
+            return
+        }
+        clearSession()
+        fill(from: profile, secrets: secrets)
+        currentProfileID = profile.id
+        autoLoginInProgress = true
+        Task { await connect(autoLogin: true) }
+    }
+
+    private func clearSession() {
+        Task { @MainActor in
+            ProviderSession.shared.reset()
+            XMLTVGuide.shared.reset()
+        }
         channels = []
         catalog = .empty
         client = nil
+    }
+
+    /// Sign out: back to the login screen, no automatic sign-in next launch.
+    /// Saved providers stay in Settings › Providers until removed there.
+    private func signOut() {
+        clearSession()
         password = ""
         staySignedIn = false
+        currentProfileID = nil
+        store.setActive(nil)
         VeyloCredentials.deletePassword()
+    }
+
+    /// After a successful connection: remember the provider when the user opted in.
+    @MainActor private func rememberProvider() {
+        if let id = currentProfileID {
+            store.setActive(id)
+            return
+        }
+        guard staySignedIn else { return }
+        let kind: ProviderProfile.Kind = mode == 0 ? .xtream : .m3u
+        let trimmedServer = server.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedPlaylist = playlistURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedEPG = epgURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let host = URL(string: kind == .xtream ? trimmedServer : trimmedPlaylist)?.host ?? "Provider"
+        let existing = store.matching(kind: kind, server: trimmedServer, username: username, playlistURL: trimmedPlaylist)
+        let profile = ProviderProfile(
+            id: existing?.id ?? UUID(),
+            name: existing?.name ?? host,
+            kind: kind,
+            server: kind == .xtream ? trimmedServer : "",
+            username: kind == .xtream ? username : "",
+            host: host,
+            lastUsed: Date()
+        )
+        let secrets = ProviderSecrets(
+            password: kind == .xtream ? password : nil,
+            playlistURL: kind == .m3u ? trimmedPlaylist : nil,
+            epgURL: trimmedEPG.isEmpty ? nil : trimmedEPG
+        )
+        if store.save(profile, secrets: secrets) {
+            store.setActive(profile.id)
+            currentProfileID = profile.id
+            VeyloCredentials.deletePassword() // now kept with the saved provider
+        } else {
+            staySignedIn = false
+            errorMessage = "Login succeeded, but the provider could not be saved securely."
+        }
     }
 
     @MainActor private func connect(autoLogin: Bool = false) async {
@@ -123,19 +214,25 @@ struct RootView: View {
             if autoLogin { autoLoginInProgress = false }
         }
         do {
+            var guideURL = URL(string: epgURL.trimmingCharacters(in: .whitespacesAndNewlines))
+            if guideURL?.scheme == nil { guideURL = nil }
             if mode == 1 {
-                let loaded = try await M3UClient.load(from: playlistURL).map { channel -> PlaylistChannel in
+                let playlist = try await M3UClient.loadPlaylist(from: playlistURL)
+                let loaded = playlist.channels.map { channel -> PlaylistChannel in
                     var keyed = channel
                     keyed.key = "m:" + Self.hashKey(channel.url.absoluteString)
                     return keyed
                 }
                 catalog = ChannelCatalog(loaded)
                 channels = loaded
+                client = nil
+                guideURL = guideURL ?? playlist.guideURL
             } else {
                 guard let url = URL(string: server.trimmingCharacters(in: .whitespacesAndNewlines)) else { throw XtreamError.invalidServer }
                 let api = XtreamClient(account: XtreamAccount(server: url, username: username, password: password))
                 try await api.authenticate()
                 let live = try await api.streams()
+                guard !live.isEmpty else { throw XtreamError.invalidResponse }
                 let ext = useTS ? "ts" : "m3u8"
                 // Category endpoint is optional: keep login and playback working if provider omits it.
                 let categories = (try? await api.categories()) ?? []
@@ -143,7 +240,7 @@ struct RootView: View {
                     result[category.category_id] = category.category_name
                 }
                 let loaded = try live.enumerated().map { index, channel in
-                    PlaylistChannel(
+                    var item = PlaylistChannel(
                         id: index,
                         name: channel.name,
                         url: try api.streamURL(for: channel, extension: ext),
@@ -151,6 +248,8 @@ struct RootView: View {
                         logoURL: channel.stream_icon.flatMap(URL.init(string:)),
                         key: "x:\(channel.stream_id)"
                     )
+                    item.epgID = channel.epg_channel_id
+                    return item
                 }
                 catalog = ChannelCatalog(loaded, preferredOrder: categories.map(\.category_name))
                 channels = loaded
@@ -159,21 +258,22 @@ struct RootView: View {
                     savedServer = server.trimmingCharacters(in: .whitespacesAndNewlines)
                     savedUsername = username
                 }
-                if staySignedIn && !VeyloCredentials.savePassword(password) {
-                    staySignedIn = false
-                    errorMessage = "Login succeeded, but secure auto-login could not be enabled."
-                }
-                password = ""
             }
+            rememberProvider()
+            if mode == 0 { password = "" }
+            sessionID = UUID()
+            let guide = guideURL
+            Task { await XMLTVGuide.shared.load(url: guide) }
         } catch {
             if autoLogin, (error as? XtreamError) == .unauthorized {
-                // Only a rejected password removes the saved one.
+                // Only a rejected password stops automatic sign-in.
+                if let id = currentProfileID, store.activeID == id { store.setActive(nil) }
                 staySignedIn = false
                 VeyloCredentials.deletePassword()
                 password = ""
                 errorMessage = "Your provider rejected the saved password. Please enter it again."
             } else if autoLogin {
-                // Offline, timeout or provider down: keep the saved password so the next try works.
+                // Offline, timeout or provider down: keep everything saved so the next try works.
                 errorMessage = "Couldn’t reach your provider. Check your internet connection and tap Connect to try again."
             } else {
                 errorMessage = error.localizedDescription

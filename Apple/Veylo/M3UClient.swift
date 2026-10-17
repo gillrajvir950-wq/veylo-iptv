@@ -14,6 +14,10 @@ struct PlaylistChannel: Identifiable {
     var displayName: String? = nil
     /// "4K", "FHD" or "HD" from the provider name, shown as a small badge.
     var quality: String? = nil
+    /// Guide (XMLTV) channel id: M3U `tvg-id` or Xtream `epg_channel_id`.
+    var epgID: String? = nil
+    /// M3U `tvg-name`, a second way to match the guide.
+    var epgName: String? = nil
     var title: String { displayName ?? name }
 }
 
@@ -28,8 +32,18 @@ enum PlaylistError: LocalizedError {
     }
 }
 
+struct M3UPlaylist {
+    let channels: [PlaylistChannel]
+    /// Guide address from the playlist header (`url-tvg` / `x-tvg-url`), if any.
+    let guideURL: URL?
+}
+
 struct M3UClient {
     static func load(from raw: String) async throws -> [PlaylistChannel] {
+        try await loadPlaylist(from: raw).channels
+    }
+
+    static func loadPlaylist(from raw: String) async throws -> M3UPlaylist {
         guard let url = URL(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
               ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
             throw PlaylistError.invalidURL
@@ -69,6 +83,9 @@ struct M3UClient {
         var pendingName: String?
         var pendingCategory = "Uncategorized"
         var pendingLogo: URL?
+        var pendingEPGID: String?
+        var pendingEPGName: String?
+        var guideURL: URL?
 
         func attribute(_ name: String, from line: String) -> String? {
             let start = name + "=\""
@@ -79,21 +96,31 @@ struct M3UClient {
         }
         for rawLine in text.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            if line.hasPrefix("#EXTINF:") {
+            if line.hasPrefix("#EXTM3U") {
+                let header = attribute("url-tvg", from: line) ?? attribute("x-tvg-url", from: line)
+                guideURL = header?.split(separator: ",").first.flatMap { URL(string: String($0).trimmingCharacters(in: .whitespaces)) }
+            } else if line.hasPrefix("#EXTINF:") {
+                pendingEPGID = attribute("tvg-id", from: line).flatMap { $0.isEmpty ? nil : $0 }
+                pendingEPGName = attribute("tvg-name", from: line).flatMap { $0.isEmpty ? nil : $0 }
                 pendingName = line.split(separator: ",", omittingEmptySubsequences: false).last.map(String.init)
                 pendingCategory = attribute("group-title", from: line).flatMap { $0.isEmpty ? nil : $0 } ?? "Uncategorized"
                 pendingLogo = attribute("tvg-logo", from: line).flatMap(URL.init(string:))
             } else if !line.isEmpty && !line.hasPrefix("#") {
                 if let stream = URL(string: line, relativeTo: url)?.absoluteURL,
                    ["http", "https"].contains(stream.scheme?.lowercased() ?? "") {
-                    channels.append(PlaylistChannel(id: channels.count, name: pendingName ?? "Channel \(channels.count + 1)", url: stream, category: pendingCategory, logoURL: pendingLogo))
+                    var channel = PlaylistChannel(id: channels.count, name: pendingName ?? "Channel \(channels.count + 1)", url: stream, category: pendingCategory, logoURL: pendingLogo)
+                    channel.epgID = pendingEPGID
+                    channel.epgName = pendingEPGName
+                    channels.append(channel)
                 }
                 pendingName = nil
                 pendingCategory = "Uncategorized"
                 pendingLogo = nil
+                pendingEPGID = nil
+                pendingEPGName = nil
             }
         }
         guard !channels.isEmpty else { throw PlaylistError.empty }
-        return channels
+        return M3UPlaylist(channels: channels, guideURL: guideURL)
     }
 }

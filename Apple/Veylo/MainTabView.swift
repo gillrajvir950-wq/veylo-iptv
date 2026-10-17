@@ -39,6 +39,7 @@ struct MainTabView: View {
     let account: AccountSummary
     @Binding var useTS: Bool
     let onSignOut: () -> Void
+    let onSwitchProvider: (ProviderProfile) -> Void
 
     @StateObject private var library: MediaLibrary
     @State private var tab: MainTab = .live
@@ -46,12 +47,14 @@ struct MainTabView: View {
     private static let barSpace: CGFloat = 78
 
     init(catalog: ChannelCatalog, client: XtreamClient?, version: String, account: AccountSummary,
-         useTS: Binding<Bool>, onSignOut: @escaping () -> Void) {
+         useTS: Binding<Bool>, onSignOut: @escaping () -> Void,
+         onSwitchProvider: @escaping (ProviderProfile) -> Void) {
         self.catalog = catalog
         self.version = version
         self.account = account
         _useTS = useTS
         self.onSignOut = onSignOut
+        self.onSwitchProvider = onSwitchProvider
         _library = StateObject(wrappedValue: MediaLibrary(client: client))
     }
 
@@ -66,7 +69,8 @@ struct MainTabView: View {
             LibraryView(kind: .series, library: library)
                 .modifier(TabPage())
                 .tag(MainTab.series)
-            SettingsView(account: account, version: version, useTS: $useTS, onSignOut: onSignOut)
+            SettingsView(account: account, version: version, useTS: $useTS, onSignOut: onSignOut,
+                         onSwitchProvider: onSwitchProvider)
                 .modifier(TabPage())
                 .tag(MainTab.settings)
         }
@@ -154,7 +158,11 @@ struct SettingsView: View {
     let version: String
     @Binding var useTS: Bool
     let onSignOut: () -> Void
+    let onSwitchProvider: (ProviderProfile) -> Void
 
+    @ObservedObject private var providers = ProviderStore.shared
+    @ObservedObject private var guide = XMLTVGuide.shared
+    @State private var showProviders = false
     @AppStorage("veylo.recentKeys") private var recentLiveRaw = ""
     @AppStorage("veylo.favoriteKeys") private var favoriteLiveRaw = ""
     @AppStorage(LibraryKeys.movieList) private var movieListRaw = ""
@@ -207,8 +215,24 @@ struct SettingsView: View {
                     LabeledContent("Username", value: username)
                 }
                 LabeledContent("Live channels", value: account.channelCount.formatted())
+                Button { showProviders = true } label: {
+                    HStack {
+                        Label("Providers", systemImage: "person.2.fill")
+                            .foregroundStyle(.white)
+                        Spacer()
+                        Text(providers.profiles.isEmpty ? "Add" : "\(providers.profiles.count) saved")
+                            .foregroundStyle(VeyloTheme.textSecondary)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(VeyloTheme.textTertiary)
+                    }
+                }
             } header: {
                 Text("Account")
+            }
+
+            if guide.status != .none {
+                guideSection
             }
 
             if session.hasProvider {
@@ -241,7 +265,7 @@ struct SettingsView: View {
                         .foregroundStyle(.red)
                 }
             } footer: {
-                Text("Signing out removes the saved password from this device’s Keychain.")
+                Text("Signing out stops automatic sign-in. Saved providers stay in Providers until you remove them.")
             }
 
             Section {
@@ -267,10 +291,36 @@ struct SettingsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Color.black.ignoresSafeArea())
+        .sheet(isPresented: $showProviders) {
+            ProvidersView(onSelect: onSwitchProvider)
+        }
         .confirmationDialog(pending?.title ?? "", isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
                             titleVisibility: .visible, presenting: pending) { action in
             Button(action.button, role: .destructive) { perform(action) }
             Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    private var guideSection: some View {
+        Section {
+            switch guide.status {
+            case .loading:
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Loading TV guide…").foregroundStyle(VeyloTheme.textSecondary)
+                }
+            case .ready(let channels, let updated):
+                LabeledContent("Channels with guide", value: channels.formatted())
+                LabeledContent("Updated", value: updated.formatted(.relative(presentation: .named)))
+            case .failed(let message):
+                Text("Couldn’t load the TV guide. \(message)")
+                    .font(.system(size: 14))
+                    .foregroundStyle(VeyloTheme.textSecondary)
+            case .none:
+                EmptyView()
+            }
+        } header: {
+            Text("TV Guide (EPG)")
         }
     }
 
@@ -350,6 +400,7 @@ struct SettingsView: View {
             seriesListRaw = ""
         case .cache:
             VODLibraryCache.clear()
+            XMLTVGuide.clearSaved()
             Task { await ImagePipeline.shared.clear() }
         case .signOut:
             onSignOut()

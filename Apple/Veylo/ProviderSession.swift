@@ -37,10 +37,13 @@ final class ProviderSession: ObservableObject {
         }
     }
 
-    /// Now/next programmes for an Xtream live channel (empty for M3U or when the provider has no guide).
+    /// Now/next programmes: the Xtream guide first, then the XMLTV guide (M3U "EPG URL").
     func programmes(for channel: PlaylistChannel) async -> [EPGProgram] {
-        guard let client, channel.key.hasPrefix("x:"), let id = Int(channel.key.dropFirst(2)) else { return [] }
-        let zone = await MainActor.run { account?.timeZone }
-        return (try? await client.shortEPG(streamID: id, timeZone: zone)) ?? []
+        if let client, channel.key.hasPrefix("x:"), let id = Int(channel.key.dropFirst(2)) {
+            let zone = await MainActor.run { account?.timeZone }
+            let list = (try? await client.shortEPG(streamID: id, timeZone: zone)) ?? []
+            if !list.isEmpty { return list }
+        }
+        return await MainActor.run { XMLTVGuide.shared.programmes(for: channel) }
     }
 }

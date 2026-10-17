@@ -4,12 +4,12 @@ Veylo is an iOS SwiftUI IPTV player for **authorized** IPTV playlists and subscr
 
 ## Current status
 
-- Repository version: **0.0.28** — app icon (light + dark); player controls reliably reappear on tap; Picture-in-Picture for live TV (HLS), sturdier TV guide; subscription status, live TV guide (now/next), movie audio/subtitle selection, safer auto-login; redesigned live player with channel switching, in-player channel list and Fit/Fill/Stretch; fallback channel logos from the public iptv-org database; channel logos restored; cleaner channel tiles and names, sturdier poster loading; fast cached posters and instantly reopening Movies/Series library; floating bottom bar with Live TV, Movies, Series and Settings; Xtream movie/series library with detail pages, episodes, resume and My List (device testing pending).
+- Repository version: **0.0.29** — multiple saved providers, M3U + XMLTV EPG, lenient Xtream data; app icon (light + dark); player controls reliably reappear on tap; Picture-in-Picture for live TV (HLS), sturdier TV guide; subscription status, live TV guide (now/next), movie audio/subtitle selection, safer auto-login; redesigned live player with channel switching, in-player channel list and Fit/Fill/Stretch; fallback channel logos from the public iptv-org database; channel logos restored; cleaner channel tiles and names, sturdier poster loading; fast cached posters and instantly reopening Movies/Series library; floating bottom bar with Live TV, Movies, Series and Settings; Xtream movie/series library with detail pages, episodes, resume and My List (device testing pending).
 - User-confirmed video **and audio playback**: Veylo 0.0.13 with Xtream MPEG-TS (`.ts`) and MobileVLCKit.
 - Xtream Codes login, live catalog and categories.
 - M3U playlists, including group-title categories and tvg-logo metadata.
 - TV-style browser: category shelves, pinned category chips, channel grids, search and favorites.
-- Optional Keychain-based Stay signed in for Xtream.
+- Saved providers (Xtream and M3U) in Settings › Providers, kept in the Keychain; switch between accounts.
 - Redesigned player: portrait info panel, full-screen overlay controls with auto-hide, play/pause, reload, TS/M3U8 fallback.
 - GitHub Actions builds an **unsigned IPA** for signing/sideloading using Feather.
 
