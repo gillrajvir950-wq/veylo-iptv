@@ -451,6 +451,7 @@ struct PlaybackView: View {
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(showsFavorite ? Color.pink : Color.white.opacity(0.8))
                         .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(VeyloPressStyle(scale: 0.85))
                 .accessibilityLabel(showsFavorite ? "Remove favorite" : "Add favorite")
