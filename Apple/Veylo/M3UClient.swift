@@ -39,6 +39,32 @@ struct M3UPlaylist {
 }
 
 struct M3UClient {
+    /// nil = the system default (first try, unchanged behaviour).
+    static let userAgents: [String?] = [
+        nil,
+        "VLC/3.0.21 LibVLC/3.0.21",
+        "IPTVSmartersPro",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+    ]
+
+    /// An Xtream-style playlist link (`…/get.php?username=…&password=…`) → server and login,
+    /// so the app can use the Xtream API when the playlist download is refused.
+    static func xtreamLogin(from raw: String) -> (server: URL, username: String, password: String)? {
+        guard let components = URLComponents(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+              components.path.lowercased().hasSuffix("get.php"),
+              let username = components.queryItems?.first(where: { $0.name == "username" })?.value, !username.isEmpty,
+              let password = components.queryItems?.first(where: { $0.name == "password" })?.value, !password.isEmpty
+        else { return nil }
+        var base = URLComponents()
+        base.scheme = components.scheme
+        base.host = components.host
+        base.port = components.port
+        let prefix = components.path.dropLast("get.php".count)
+        base.path = prefix == "/" ? "" : String(prefix.hasSuffix("/") ? prefix.dropLast() : prefix)
+        guard let server = base.url, server.host != nil else { return nil }
+        return (server, username, password)
+    }
+
     static func load(from raw: String) async throws -> [PlaylistChannel] {
         try await loadPlaylist(from: raw).channels
     }
@@ -48,18 +74,30 @@ struct M3UClient {
               ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
             throw PlaylistError.invalidURL
         }
-        var request = URLRequest(url: url)
-        request.setValue("application/x-mpegURL, audio/x-mpegurl, text/plain, */*", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 30
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw PlaylistError.invalidFormat("No HTTP response")
+        // Some panels answer non-standard codes (e.g. 884) to unknown apps; try common player identities.
+        var fetched: (Data, HTTPURLResponse)?
+        var lastStatus = 0
+        for agent in userAgents {
+            var request = URLRequest(url: url)
+            request.setValue("application/x-mpegURL, audio/x-mpegurl, text/plain, */*", forHTTPHeaderField: "Accept")
+            if let agent { request.setValue(agent, forHTTPHeaderField: "User-Agent") }
+            request.timeoutInterval = 90
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw PlaylistError.invalidFormat("No HTTP response")
+            }
+            if (200...299).contains(http.statusCode) {
+                fetched = (data, http)
+                break
+            }
+            lastStatus = http.statusCode
         }
-        guard (200...299).contains(http.statusCode) else {
-            throw PlaylistError.invalidFormat("HTTP status \(http.statusCode)")
+        guard let result = fetched else {
+            throw PlaylistError.invalidFormat("HTTP status \(lastStatus)")
         }
-        guard data.count <= 20_000_000 else {
-            throw PlaylistError.invalidFormat("Playlist exceeds 20 MB")
+        let (data, http) = result
+        guard data.count <= 80_000_000 else {
+            throw PlaylistError.invalidFormat("Playlist exceeds 80 MB")
         }
         let decoded = String(data: data, encoding: .utf8)
             ?? String(data: data, encoding: .utf16)

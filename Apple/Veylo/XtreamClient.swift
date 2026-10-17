@@ -146,14 +146,21 @@ struct XtreamClient {
     }
 
     private func fetch<T: Decodable>(_ type: T.Type, action: String? = nil) async throws -> T {
-        var request = URLRequest(url: try endpoint(action: action))
-        request.timeoutInterval = 20
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw XtreamError.invalidResponse
+        let url = try endpoint(action: action)
+        // Default identity first; some panels refuse unknown apps, so retry as common players.
+        for agent in M3UClient.userAgents {
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 20
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            if let agent { request.setValue(agent, forHTTPHeaderField: "User-Agent") }
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { throw XtreamError.invalidResponse }
+            if (200...299).contains(http.statusCode) {
+                return try JSONDecoder().decode(T.self, from: data)
+            }
+            if http.statusCode == 401 || http.statusCode == 404 { break }
         }
-        return try JSONDecoder().decode(T.self, from: data)
+        throw XtreamError.invalidResponse
     }
 
     private struct AuthenticationResponse: Decodable {

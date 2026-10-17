@@ -25,7 +25,7 @@ struct RootView: View {
     /// New value per successful connection, so the signed-in screens start fresh after a switch.
     @State private var sessionID = UUID()
 
-    private let version = "0.0.29"
+    private let version = "0.0.30"
     private var store: ProviderStore { ProviderStore.shared }
 
     var body: some View {
@@ -35,7 +35,7 @@ struct RootView: View {
                 if !channels.isEmpty {
                     MainTabView(
                         catalog: catalog,
-                        client: mode == 0 ? client : nil,
+                        client: client,
                         version: version,
                         account: accountSummary,
                         useTS: $useTS,
@@ -207,6 +207,34 @@ struct RootView: View {
         }
     }
 
+    /// Live channels through the Xtream API (also used for refused "get.php" playlist links).
+    @MainActor private func loadXtream(_ api: XtreamClient) async throws {
+        try await api.authenticate()
+        let live = try await api.streams()
+        guard !live.isEmpty else { throw XtreamError.invalidResponse }
+        let ext = useTS ? "ts" : "m3u8"
+        // Category endpoint is optional: keep login and playback working if provider omits it.
+        let categories = (try? await api.categories()) ?? []
+        let categoryNames = categories.reduce(into: [String: String]()) { result, category in
+            result[category.category_id] = category.category_name
+        }
+        let loaded = try live.enumerated().map { index, channel in
+            var item = PlaylistChannel(
+                id: index,
+                name: channel.name,
+                url: try api.streamURL(for: channel, extension: ext),
+                category: channel.category_id.flatMap { categoryNames[$0] } ?? "Uncategorized",
+                logoURL: channel.stream_icon.flatMap(URL.init(string:)),
+                key: "x:\(channel.stream_id)"
+            )
+            item.epgID = channel.epg_channel_id
+            return item
+        }
+        catalog = ChannelCatalog(loaded, preferredOrder: categories.map(\.category_name))
+        channels = loaded
+        client = api
+    }
+
     @MainActor private func connect(autoLogin: Bool = false) async {
         loading = true
         defer {
@@ -217,43 +245,33 @@ struct RootView: View {
             var guideURL = URL(string: epgURL.trimmingCharacters(in: .whitespacesAndNewlines))
             if guideURL?.scheme == nil { guideURL = nil }
             if mode == 1 {
-                let playlist = try await M3UClient.loadPlaylist(from: playlistURL)
-                let loaded = playlist.channels.map { channel -> PlaylistChannel in
-                    var keyed = channel
-                    keyed.key = "m:" + Self.hashKey(channel.url.absoluteString)
-                    return keyed
+                do {
+                    let playlist = try await M3UClient.loadPlaylist(from: playlistURL)
+                    let loaded = playlist.channels.map { channel -> PlaylistChannel in
+                        var keyed = channel
+                        keyed.key = "m:" + Self.hashKey(channel.url.absoluteString)
+                        return keyed
+                    }
+                    catalog = ChannelCatalog(loaded)
+                    channels = loaded
+                    client = nil
+                    guideURL = guideURL ?? playlist.guideURL
+                } catch {
+                    // A refused "get.php" playlist link: the same account usually works through the Xtream API.
+                    guard let login = M3UClient.xtreamLogin(from: playlistURL) else { throw error }
+                    let api = XtreamClient(account: XtreamAccount(server: login.server, username: login.username, password: login.password))
+                    do {
+                        try await loadXtream(api)
+                    } catch XtreamError.unauthorized {
+                        throw XtreamError.unauthorized
+                    } catch {
+                        throw PlaylistError.invalidFormat("the provider refused the playlist download, and its Xtream API didn’t answer either. Ask the provider for an Xtream login or another M3U link.")
+                    }
                 }
-                catalog = ChannelCatalog(loaded)
-                channels = loaded
-                client = nil
-                guideURL = guideURL ?? playlist.guideURL
             } else {
                 guard let url = URL(string: server.trimmingCharacters(in: .whitespacesAndNewlines)) else { throw XtreamError.invalidServer }
                 let api = XtreamClient(account: XtreamAccount(server: url, username: username, password: password))
-                try await api.authenticate()
-                let live = try await api.streams()
-                guard !live.isEmpty else { throw XtreamError.invalidResponse }
-                let ext = useTS ? "ts" : "m3u8"
-                // Category endpoint is optional: keep login and playback working if provider omits it.
-                let categories = (try? await api.categories()) ?? []
-                let categoryNames = categories.reduce(into: [String: String]()) { result, category in
-                    result[category.category_id] = category.category_name
-                }
-                let loaded = try live.enumerated().map { index, channel in
-                    var item = PlaylistChannel(
-                        id: index,
-                        name: channel.name,
-                        url: try api.streamURL(for: channel, extension: ext),
-                        category: channel.category_id.flatMap { categoryNames[$0] } ?? "Uncategorized",
-                        logoURL: channel.stream_icon.flatMap(URL.init(string:)),
-                        key: "x:\(channel.stream_id)"
-                    )
-                    item.epgID = channel.epg_channel_id
-                    return item
-                }
-                catalog = ChannelCatalog(loaded, preferredOrder: categories.map(\.category_name))
-                channels = loaded
-                client = api
+                try await loadXtream(api)
                 if rememberLogin || staySignedIn {
                     savedServer = server.trimmingCharacters(in: .whitespacesAndNewlines)
                     savedUsername = username
@@ -274,7 +292,8 @@ struct RootView: View {
                 errorMessage = "Your provider rejected the saved password. Please enter it again."
             } else if autoLogin {
                 // Offline, timeout or provider down: keep everything saved so the next try works.
-                errorMessage = "Couldn’t reach your provider. Check your internet connection and tap Connect to try again."
+                let detail = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                errorMessage = "Couldn’t open your saved provider.\n\n\(detail)\n\nTap Connect to try again."
             } else {
                 errorMessage = error.localizedDescription
             }
