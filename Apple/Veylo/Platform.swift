@@ -18,6 +18,9 @@ extension NSImage {
         self.init(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
 
+    /// Pixel scale used for cache cost (NSImage sizes are already in points).
+    var scale: CGFloat { 1 }
+
     var cgImage: CGImage? {
         var rect = CGRect(origin: .zero, size: size)
         return cgImage(forProposedRect: &rect, context: nil, hints: nil)
