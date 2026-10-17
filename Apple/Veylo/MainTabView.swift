@@ -79,7 +79,6 @@ struct MainTabView: View {
                 .ignoresSafeArea(.keyboard)
         }
         .sensoryFeedback(.selection, trigger: tab)
-        .task { await LogoDirectory.shared.prepare() }
         .task {
             ProviderSession.shared.start(client: library.client)
             await ProviderSession.shared.refreshAccount()

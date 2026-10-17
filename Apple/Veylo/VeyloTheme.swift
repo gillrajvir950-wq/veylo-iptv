@@ -217,10 +217,9 @@ enum VeyloText {
 struct ChannelLogo: View {
     let channel: PlaylistChannel
     var nameSize: CGFloat = 15
-    @ObservedObject private var directory = LogoDirectory.shared
 
     var body: some View {
-        RemoteImage(urls: [channel.logoURL, directory.logo(for: channel)].compactMap { $0 },
+        RemoteImage(urls: [channel.logoURL].compactMap { $0 },
                     maxPixel: 360, contentMode: .fit) {
             nameplate
         }

@@ -14,7 +14,7 @@ targets:
     info:
       path: Apple/Veylo/Info.plist
       properties:
-        CFBundleDisplayName: 'Veylo 0.0.30'
+        CFBundleDisplayName: 'Veylo 0.0.31'
         UILaunchStoryboardName: LaunchScreen
         UIRequiresFullScreen: true
         UIBackgroundModes:
@@ -24,8 +24,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.veylo.player
-        MARKETING_VERSION: 0.0.30
-        CURRENT_PROJECT_VERSION: 30
+        MARKETING_VERSION: 0.0.31
+        CURRENT_PROJECT_VERSION: 31
         TARGETED_DEVICE_FAMILY: '1,2'
         CODE_SIGNING_ALLOWED: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

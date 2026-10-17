@@ -349,19 +349,7 @@ struct ChannelCatalog {
             }
             enriched.append(channel)
         }
-        // A logo used by several *different* channels is a provider placeholder (one "4K ULTRA HD"
-        // image on Sony Max, Star Movie, …), so those show their name instead. The same channel
-        // listed many times (HD/FHD/backup copies) keeps its real logo.
-        var titlesByLogo: [URL: Set<String>] = [:]
-        for channel in enriched {
-            if let logo = channel.logoURL { titlesByLogo[logo, default: []].insert(channel.title.lowercased()) }
-        }
-        let placeholders = Set(titlesByLogo.filter { $0.value.count >= 4 }.keys)
-        if !placeholders.isEmpty {
-            for index in enriched.indices {
-                if let logo = enriched[index].logoURL, placeholders.contains(logo) { enriched[index].logoURL = nil }
-            }
-        }
+        // Provider logos are shown exactly as given (user request, 0.0.31).
         all = enriched
 
         var buckets: [String: [PlaylistChannel]] = [:]
