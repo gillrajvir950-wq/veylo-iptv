@@ -50,6 +50,7 @@ struct PlaybackView: View {
     @State private var programmes: [EPGProgram] = []
     @State private var vlcSuspended = false
     @ObservedObject private var pip = PiPManager.shared
+    @ObservedObject private var airplay = AirPlayManager.shared
     @ObservedObject private var session = ProviderSession.shared
     @ObservedObject private var guide = XMLTVGuide.shared
 
@@ -123,7 +124,7 @@ struct PlaybackView: View {
             .task(id: AutoHideKey(visible: controlsVisible, paused: paused, full: full, list: showList, playbackID: playbackID)) {
                 guard full, controlsVisible, !paused, !showList else { return }
                 try? await Task.sleep(for: .seconds(4))
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, airplay.state != .choosing else { return }
                 withAnimation(.easeInOut(duration: 0.3)) { controlsVisible = false }
             }
             .task(id: toast) {
@@ -158,6 +159,10 @@ struct PlaybackView: View {
         }
         #endif
         .task(id: "\(channel.id)-\(guide.revision)") { await loadGuide() }
+        .onChange(of: currentURL) { _, newURL in
+            if airplay.state != .idle, let newURL { airplay.replace(url: PiPManager.hlsURL(for: newURL)) }
+        }
+        .onDisappear { airplay.stop(notify: false) }
         .onChange(of: isFailed) { _, failed in
             if failed { Task { await session.refreshAccount() } }
         }
@@ -354,6 +359,8 @@ struct PlaybackView: View {
                 .buttonStyle(VeyloPressStyle())
             }
             .padding(16)
+        } else if airplay.state != .idle {
+            AirPlayStatusView(airplay: airplay)
         } else if vlcSuspended {
             VStack(spacing: 10) {
                 Image(systemName: "pip")
@@ -390,6 +397,9 @@ struct PlaybackView: View {
             circleButton("chevron.down", size: 36, label: "Close player") { dismiss() }
             Spacer()
             HStack(spacing: 10) {
+                if AirPlayManager.isSupported {
+                    AirPlayCircleButton(size: 36, onOpen: beginAirPlay, onClose: { airplay.pickerDismissed() })
+                }
                 if PiPManager.isSupported {
                     circleButton("pip.enter", size: 36, label: "Picture in Picture") { startPiP() }
                 }
@@ -559,6 +569,9 @@ struct PlaybackView: View {
 
     /// PiP, aspect, favorite, channel list and exit-full-screen buttons.
     @ViewBuilder private var fullActionButtons: some View {
+        if AirPlayManager.isSupported {
+            AirPlayCircleButton(size: 40, onOpen: beginAirPlay, onClose: { airplay.pickerDismissed() })
+        }
         if PiPManager.isSupported {
             circleButton("pip.enter", size: 40, label: "Picture in Picture") { startPiP() }
         }
@@ -777,7 +790,7 @@ struct PlaybackView: View {
     /// Hands the channel to Apple's player for Picture-in-Picture; VLC stops meanwhile and
     /// restarts when PiP closes (or if the channel has no playable HLS stream).
     private func startPiP() {
-        guard PiPManager.isSupported, pip.state == .idle, !vlcSuspended else { return }
+        guard PiPManager.isSupported, pip.state == .idle, airplay.state == .idle, !vlcSuspended else { return }
         let source = PiPManager.hlsURL(for: currentURL ?? url)
         vlcSuspended = true
         pip.start(url: source) { failed in
@@ -785,6 +798,19 @@ struct PlaybackView: View {
             play(currentURL ?? url)
             if failed {
                 withAnimation { toast = "Picture-in-Picture isn’t available for this channel" }
+            }
+        }
+    }
+
+    /// AirPlay device list opened: hand the channel's HLS stream to Apple's player (VLC pauses).
+    private func beginAirPlay() {
+        guard AirPlayManager.isSupported, airplay.state == .idle, pip.state == .idle, !vlcSuspended else { return }
+        vlcSuspended = true
+        airplay.prepare(url: PiPManager.hlsURL(for: currentURL ?? url)) { failed, _ in
+            vlcSuspended = false
+            play(currentURL ?? url)
+            if failed {
+                withAnimation { toast = "AirPlay isn’t available for this channel" }
             }
         }
     }

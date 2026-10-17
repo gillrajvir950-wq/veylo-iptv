@@ -63,6 +63,19 @@ final class VODPlayback: NSObject, ObservableObject {
         #endif
     }
 
+    /// Used while the movie plays on a TV over AirPlay.
+    func pause() {
+        #if canImport(MobileVLCKit) || canImport(VLCKit)
+        if player.isPlaying { player.pause() }
+        #endif
+    }
+
+    func resume() {
+        #if canImport(MobileVLCKit) || canImport(VLCKit)
+        if !player.isPlaying { player.play() }
+        #endif
+    }
+
     func seek(to seconds: Double) {
         #if canImport(MobileVLCKit) || canImport(VLCKit)
         guard duration > 0 else { return }
@@ -206,6 +219,7 @@ struct VODPlayerView: View {
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var playback = VODPlayback()
+    @ObservedObject private var airplay = AirPlayManager.shared
     @State private var controlsVisible = true
     @State private var scrubValue: Double?
     @State private var lastSaved: Double = 0
@@ -236,7 +250,20 @@ struct VODPlayerView: View {
                     .tint(.white)
                     .allowsHitTesting(false)
             }
-            if playback.status == .failed || playback.status == .ended {
+            if airplay.state != .idle {
+                Color.black.opacity(0.85).ignoresSafeArea()
+                AirPlayStatusView(airplay: airplay)
+                VStack {
+                    HStack {
+                        roundButton("xmark", size: 40, label: "Close") { close() }
+                        Spacer()
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .foregroundStyle(.white)
+            } else if playback.status == .failed || playback.status == .ended {
                 endOverlay
             } else if controlsVisible {
                 controls.transition(.opacity)
@@ -245,7 +272,7 @@ struct VODPlayerView: View {
         .task(id: AutoHideKey(visible: controlsVisible, status: playback.status, scrubbing: scrubValue != nil)) {
             guard controlsVisible, playback.status == .playing, scrubValue == nil else { return }
             try? await Task.sleep(for: .seconds(4))
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, airplay.state != .choosing else { return }
             withAnimation(.easeInOut(duration: 0.3)) { controlsVisible = false }
         }
         .onAppear {
@@ -253,6 +280,7 @@ struct VODPlayerView: View {
             playback.start(url: request.url, at: request.startAt)
         }
         .onDisappear {
+            airplay.stop(notify: false)
             saveProgress()
             playback.stop()
             VeyloPlatform.setIdleTimerDisabled(false)
@@ -304,6 +332,9 @@ struct VODPlayerView: View {
                         }
                     }
                     Spacer()
+                    if AirPlayManager.isSupported {
+                        AirPlayCircleButton(size: 40, onOpen: beginAirPlay, onClose: { airplay.pickerDismissed() })
+                    }
                     if playback.audioTracks.count > 1 || !playback.subtitleTracks.isEmpty {
                         trackMenu
                     }
@@ -431,6 +462,18 @@ struct VODPlayerView: View {
         }
         .buttonStyle(VeyloPressStyle(scale: 0.9))
         .accessibilityLabel(label)
+    }
+
+    /// AirPlay list opened: the movie continues on the TV from the same second; VLC pauses here
+    /// and resumes from wherever the TV stopped.
+    private func beginAirPlay() {
+        guard AirPlayManager.isSupported, airplay.state == .idle else { return }
+        let start = playback.time
+        playback.pause()
+        airplay.prepare(url: request.url, startAt: start) { failed, position in
+            if !failed, position > 5 { playback.seek(to: position) }
+            playback.resume()
+        }
     }
 
     private func close() {
