@@ -1,7 +1,10 @@
 import SwiftUI
-import UIKit
 #if canImport(MobileVLCKit)
+import UIKit
 import MobileVLCKit
+#elseif canImport(VLCKit)
+import AppKit
+import VLCKit
 #endif
 
 /// Movie/episode playback engine. Separate from the live-TV VLCPlaybackSurface on purpose,
@@ -23,20 +26,20 @@ final class VODPlayback: NSObject, ObservableObject {
     @Published private(set) var currentAudio: Int32 = -1
     @Published private(set) var currentSubtitle: Int32 = -1
 
-    #if canImport(MobileVLCKit)
+    #if canImport(MobileVLCKit) || canImport(VLCKit)
     private let player = VLCMediaPlayer()
     #endif
     private var started = false
 
     override init() {
         super.init()
-        #if canImport(MobileVLCKit)
+        #if canImport(MobileVLCKit) || canImport(VLCKit)
         player.delegate = self
         #endif
     }
 
-    func attach(_ view: UIView) {
-        #if canImport(MobileVLCKit)
+    func attach(_ view: VeyloNativeView) {
+        #if canImport(MobileVLCKit) || canImport(VLCKit)
         player.drawable = view
         #endif
     }
@@ -44,7 +47,7 @@ final class VODPlayback: NSObject, ObservableObject {
     func start(url: URL, at seconds: Double) {
         guard !started else { return }
         started = true
-        #if canImport(MobileVLCKit)
+        #if canImport(MobileVLCKit) || canImport(VLCKit)
         let media = VLCMedia(url: url)
         if seconds > 5 { media.addOption(":start-time=\(Int(seconds))") }
         player.media = media
@@ -55,13 +58,13 @@ final class VODPlayback: NSObject, ObservableObject {
     }
 
     func togglePause() {
-        #if canImport(MobileVLCKit)
+        #if canImport(MobileVLCKit) || canImport(VLCKit)
         if player.isPlaying { player.pause() } else { player.play() }
         #endif
     }
 
     func seek(to seconds: Double) {
-        #if canImport(MobileVLCKit)
+        #if canImport(MobileVLCKit) || canImport(VLCKit)
         guard duration > 0 else { return }
         player.position = Float(min(max(seconds / duration, 0), 0.999))
         time = seconds
@@ -69,13 +72,13 @@ final class VODPlayback: NSObject, ObservableObject {
     }
 
     func skip(_ seconds: Int32) {
-        #if canImport(MobileVLCKit)
+        #if canImport(MobileVLCKit) || canImport(VLCKit)
         if seconds >= 0 { player.jumpForward(seconds) } else { player.jumpBackward(-seconds) }
         #endif
     }
 
     func retry(url: URL) {
-        #if canImport(MobileVLCKit)
+        #if canImport(MobileVLCKit) || canImport(VLCKit)
         let resume = time
         player.stop()
         status = .loading
@@ -88,7 +91,7 @@ final class VODPlayback: NSObject, ObservableObject {
 
     /// Reads the audio languages and subtitles VLC found in the file.
     func refreshTracks() {
-        #if canImport(MobileVLCKit)
+        #if canImport(MobileVLCKit) || canImport(VLCKit)
         let audio = Self.tracks(names: player.audioTrackNames, ids: player.audioTrackIndexes)
             .filter { $0.id >= 0 }
         let subtitles = Self.tracks(names: player.videoSubTitlesNames, ids: player.videoSubTitlesIndexes)
@@ -105,14 +108,14 @@ final class VODPlayback: NSObject, ObservableObject {
     }
 
     func selectAudio(_ id: Int32) {
-        #if canImport(MobileVLCKit)
+        #if canImport(MobileVLCKit) || canImport(VLCKit)
         player.currentAudioTrackIndex = id
         currentAudio = id
         #endif
     }
 
     func selectSubtitle(_ id: Int32) {
-        #if canImport(MobileVLCKit)
+        #if canImport(MobileVLCKit) || canImport(VLCKit)
         player.currentVideoSubTitleIndex = id
         currentSubtitle = id
         #endif
@@ -128,7 +131,7 @@ final class VODPlayback: NSObject, ObservableObject {
     }
 
     func stop() {
-        #if canImport(MobileVLCKit)
+        #if canImport(MobileVLCKit) || canImport(VLCKit)
         player.delegate = nil
         player.stop()
         player.drawable = nil
@@ -136,7 +139,7 @@ final class VODPlayback: NSObject, ObservableObject {
     }
 }
 
-#if canImport(MobileVLCKit)
+#if canImport(MobileVLCKit) || canImport(VLCKit)
 extension VODPlayback: VLCMediaPlayerDelegate {
     func mediaPlayerStateChanged(_ notification: Notification!) {
         let next: Status?
@@ -168,6 +171,7 @@ extension VODPlayback: VLCMediaPlayerDelegate {
 }
 #endif
 
+#if os(iOS)
 private struct VODVideoSurface: UIViewRepresentable {
     let playback: VODPlayback
 
@@ -182,6 +186,19 @@ private struct VODVideoSurface: UIViewRepresentable {
 
     func updateUIView(_ uiView: UIView, context: Context) {}
 }
+#else
+private struct VODVideoSurface: NSViewRepresentable {
+    let playback: VODPlayback
+
+    func makeNSView(context: Context) -> PassThroughVideoView {
+        let view = PassThroughVideoView()
+        playback.attach(view)
+        return view
+    }
+
+    func updateNSView(_ nsView: PassThroughVideoView, context: Context) {}
+}
+#endif
 
 /// Full-screen movie/episode player with scrubber, ±10 s skip and resume.
 struct VODPlayerView: View {
@@ -232,13 +249,13 @@ struct VODPlayerView: View {
             withAnimation(.easeInOut(duration: 0.3)) { controlsVisible = false }
         }
         .onAppear {
-            UIApplication.shared.isIdleTimerDisabled = true
+            VeyloPlatform.setIdleTimerDisabled(true)
             playback.start(url: request.url, at: request.startAt)
         }
         .onDisappear {
             saveProgress()
             playback.stop()
-            UIApplication.shared.isIdleTimerDisabled = false
+            VeyloPlatform.setIdleTimerDisabled(false)
         }
         .onChange(of: playback.time) { _, time in
             if abs(time - lastSaved) >= 15 { saveProgress() }
@@ -246,7 +263,7 @@ struct VODPlayerView: View {
         .onChange(of: playback.status) { _, status in
             if status == .ended { VODProgressStore.save(key: request.progressKey, position: 0, duration: 0) }
         }
-        .statusBarHidden(true)
+        .veyloStatusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .preferredColorScheme(.dark)
     }

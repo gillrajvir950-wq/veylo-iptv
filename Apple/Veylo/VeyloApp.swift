@@ -8,6 +8,15 @@ struct VeyloApp: App {
     }
 
     var body: some Scene {
+        #if os(macOS)
+        WindowGroup {
+            RootView()
+                .frame(minWidth: 820, minHeight: 560)
+        }
+        .defaultSize(width: 1280, height: 820)
+        .windowStyle(.hiddenTitleBar)
+        #else
         WindowGroup { RootView() }
+        #endif
     }
 }

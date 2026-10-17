@@ -54,12 +54,7 @@ struct LoginView: View {
             }
             .scrollDismissesKeyboard(.interactively)
         }
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") { focused = nil }
-            }
-        }
+        .keyboardDoneButton { focused = nil }
     }
 
     private var header: some View {
@@ -123,8 +118,8 @@ struct LoginView: View {
         VStack(spacing: 10) {
             inputField(icon: "globe", field: .server) {
                 TextField("", text: $server, prompt: prompt("Server URL  (http://host:port)"))
-                    .keyboardType(.URL)
-                    .textInputAutocapitalization(.never)
+                    .urlKeyboard()
+                    .noAutocapitalization()
                     .autocorrectionDisabled()
                     .submitLabel(.next)
                     .focused($focused, equals: .server)
@@ -132,7 +127,7 @@ struct LoginView: View {
             }
             inputField(icon: "person.fill", field: .username) {
                 TextField("", text: $username, prompt: prompt("Username"))
-                    .textInputAutocapitalization(.never)
+                    .noAutocapitalization()
                     .autocorrectionDisabled()
                     .submitLabel(.next)
                     .focused($focused, equals: .username)
@@ -142,7 +137,7 @@ struct LoginView: View {
                 Group {
                     if revealPassword {
                         TextField("", text: $password, prompt: prompt("Password"))
-                            .textInputAutocapitalization(.never)
+                            .noAutocapitalization()
                             .autocorrectionDisabled()
                     } else {
                         SecureField("", text: $password, prompt: prompt("Password"))
@@ -177,8 +172,8 @@ struct LoginView: View {
         VStack(alignment: .leading, spacing: 10) {
             inputField(icon: "link", field: .playlist) {
                 TextField("", text: $playlistURL, prompt: prompt("Playlist URL  (https://…/playlist.m3u)"))
-                    .keyboardType(.URL)
-                    .textInputAutocapitalization(.never)
+                    .urlKeyboard()
+                    .noAutocapitalization()
                     .autocorrectionDisabled()
                     .submitLabel(.go)
                     .focused($focused, equals: .playlist)
@@ -186,8 +181,8 @@ struct LoginView: View {
             }
             inputField(icon: "list.bullet.rectangle.portrait", field: .epg) {
                 TextField("", text: $epgURL, prompt: prompt("EPG / TV guide URL  (optional)"))
-                    .keyboardType(.URL)
-                    .textInputAutocapitalization(.never)
+                    .urlKeyboard()
+                    .noAutocapitalization()
                     .autocorrectionDisabled()
                     .submitLabel(.go)
                     .focused($focused, equals: .epg)

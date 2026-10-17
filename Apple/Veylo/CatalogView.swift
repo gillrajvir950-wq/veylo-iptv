@@ -108,12 +108,7 @@ struct CatalogView: View {
         .task(id: SearchKey(query: query, selection: selection, country: countryFilter)) { await runSearch() }
         .onAppear(perform: loadStoredLists)
         .sensoryFeedback(.selection, trigger: favoriteKeysRaw)
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") { searchFocused = false }
-            }
-        }
+        .keyboardDoneButton { searchFocused = false }
         .onChange(of: favoriteKeysRaw) { _, raw in
             let keys = Self.split(raw)
             if keys != favoriteKeys { favoriteKeys = keys }
@@ -122,7 +117,7 @@ struct CatalogView: View {
             let keys = Self.split(raw)
             if keys != recentKeys { recentKeys = keys }
         }
-        .fullScreenCover(item: $nowPlaying) { item in
+        .veyloFullScreenCover(item: $nowPlaying) { item in
             PlaybackView(
                 channel: item.channel,
                 lineup: lineup(for: item.channel),
@@ -254,7 +249,7 @@ struct CatalogView: View {
                 .foregroundStyle(VeyloTheme.textTertiary)
             TextField("", text: $searchText, prompt: Text(searchPrompt).foregroundStyle(VeyloTheme.textTertiary))
                 .focused($searchFocused)
-                .textInputAutocapitalization(.never)
+                .noAutocapitalization()
                 .autocorrectionDisabled()
                 .submitLabel(.search)
                 .foregroundStyle(.white)
@@ -405,13 +400,10 @@ struct CatalogView: View {
     // MARK: Featured carousel
 
     private func heroCarousel(_ channels: [PlaylistChannel], label: String) -> some View {
-        TabView {
-            ForEach(channels) { channel in
-                heroCard(channel, label: label)
-                    .padding(.horizontal, 20)
-            }
+        VeyloPager(items: channels) { channel in
+            heroCard(channel, label: label)
+                .padding(.horizontal, 20)
         }
-        .tabViewStyle(.page(indexDisplayMode: channels.count > 1 ? .always : .never))
         .frame(height: 252)
     }
 

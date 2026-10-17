@@ -7,7 +7,7 @@ extension View {
     @ViewBuilder
     func veyloGlass<S: InsettableShape>(in shape: S, interactive: Bool = false, tint: Color? = nil) -> some View {
         #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, *) {
             self.glassEffect(Glass.regular.tint(tint).interactive(interactive), in: shape)
         } else {
             self.modifier(FrostedGlass(shape: shape, tint: tint))
@@ -58,7 +58,7 @@ struct VeyloGlassGroup<Content: View>: View {
 
     var body: some View {
         #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, *) {
             GlassEffectContainer(spacing: spacing) { content() }
         } else {
             content()

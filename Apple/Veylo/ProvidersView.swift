@@ -75,7 +75,7 @@ struct ProvidersView: View {
             .scrollContentBackground(.hidden)
             .background(Color.black.ignoresSafeArea())
             .navigationTitle("Providers")
-            .navigationBarTitleDisplayMode(.large)
+            .largeNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -175,11 +175,11 @@ struct AddProviderView: View {
                 if kind == .xtream {
                     Section {
                         TextField("Server URL (http://host:port)", text: $server)
-                            .keyboardType(.URL)
-                            .textInputAutocapitalization(.never)
+                            .urlKeyboard()
+                            .noAutocapitalization()
                             .autocorrectionDisabled()
                         TextField("Username", text: $username)
-                            .textInputAutocapitalization(.never)
+                            .noAutocapitalization()
                             .autocorrectionDisabled()
                         SecureField("Password", text: $password)
                     } header: {
@@ -188,8 +188,8 @@ struct AddProviderView: View {
                 } else {
                     Section {
                         TextField("Playlist URL (https://…/playlist.m3u)", text: $playlistURL)
-                            .keyboardType(.URL)
-                            .textInputAutocapitalization(.never)
+                            .urlKeyboard()
+                            .noAutocapitalization()
                             .autocorrectionDisabled()
                     } header: {
                         Text("Playlist")
@@ -198,8 +198,8 @@ struct AddProviderView: View {
 
                 Section {
                     TextField("EPG / TV guide URL (optional)", text: $epgURL)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
+                        .urlKeyboard()
+                        .noAutocapitalization()
                         .autocorrectionDisabled()
                 } header: {
                     Text("TV Guide")
@@ -216,7 +216,7 @@ struct AddProviderView: View {
             .scrollContentBackground(.hidden)
             .background(Color.black.ignoresSafeArea())
             .navigationTitle("Add Provider")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

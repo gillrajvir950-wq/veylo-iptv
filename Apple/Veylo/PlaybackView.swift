@@ -132,7 +132,7 @@ struct PlaybackView: View {
                 guard !Task.isCancelled else { return }
                 withAnimation { toast = nil }
             }
-            .statusBarHidden(full)
+            .veyloStatusBarHidden(full)
             .persistentSystemOverlays(full ? .hidden : .automatic)
         }
         .preferredColorScheme(.dark)

@@ -1,0 +1,56 @@
+name: Veylo Mac Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-mac:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Select newest Xcode
+        run: |
+          set -euo pipefail
+          NEWEST=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -v -i beta | sort -V | tail -1 || true)
+          if [ -n "$NEWEST" ]; then sudo xcode-select -s "$NEWEST"; fi
+          xcodebuild -version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Install VLC dependencies
+        run: |
+          sudo gem install cocoapods --no-document
+          pod install
+      - name: Build Mac app (Apple Silicon, ad-hoc signed)
+        run: |
+          set +e
+          xcodebuild -workspace Veylo.xcworkspace -scheme VeyloMac -configuration Release \
+            -destination 'generic/platform=macOS' -derivedDataPath "$RUNNER_TEMP/MacBuild" \
+            ARCHS=arm64 CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= build 2>&1 | tee "$RUNNER_TEMP/mac-build.log"
+          STATUS=${PIPESTATUS[0]}
+          grep -E "error:|error :" "$RUNNER_TEMP/mac-build.log" | sort -u | head -30 | while IFS= read -r line; do echo "::error title=Mac compile::${line}"; done
+          exit $STATUS
+      - name: Verify and package
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/MacBuild/Build/Products/Release/Veylo.app"
+          test -d "$APP"
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict "$APP"
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "::notice title=Mac build::Veylo $VERSION — $(lipo -archs "$APP/Contents/MacOS/Veylo") — $(xcodebuild -version | head -1)"
+          mkdir -p "$RUNNER_TEMP/dmg"
+          cp -R "$APP" "$RUNNER_TEMP/dmg/"
+          ln -s /Applications "$RUNNER_TEMP/dmg/Applications"
+          hdiutil create -volname "Veylo" -srcfolder "$RUNNER_TEMP/dmg" -ov -format UDZO "$GITHUB_WORKSPACE/Veylo-$VERSION-mac.dmg"
+      - name: Upload Mac app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Veylo-${{ env.VERSION }}-Mac-DMG
+          path: Veylo-${{ env.VERSION }}-mac.dmg
+          retention-days: 7

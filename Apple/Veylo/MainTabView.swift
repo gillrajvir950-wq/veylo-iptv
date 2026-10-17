@@ -59,21 +59,7 @@ struct MainTabView: View {
     }
 
     var body: some View {
-        TabView(selection: $tab) {
-            CatalogView(catalog: catalog, version: version)
-                .modifier(TabPage())
-                .tag(MainTab.live)
-            LibraryView(kind: .movie, library: library)
-                .modifier(TabPage())
-                .tag(MainTab.movies)
-            LibraryView(kind: .series, library: library)
-                .modifier(TabPage())
-                .tag(MainTab.series)
-            SettingsView(account: account, version: version, useTS: $useTS, onSignOut: onSignOut,
-                         onSwitchProvider: onSwitchProvider)
-                .modifier(TabPage())
-                .tag(MainTab.settings)
-        }
+        pages
         .overlay(alignment: .bottom) {
             FloatingTabBar(selection: $tab)
                 .ignoresSafeArea(.keyboard)
@@ -91,6 +77,42 @@ struct MainTabView: View {
         }
     }
 
+    @ViewBuilder private var pages: some View {
+        #if os(iOS)
+        TabView(selection: $tab) {
+            page(.live).tag(MainTab.live)
+            page(.movies).tag(MainTab.movies)
+            page(.series).tag(MainTab.series)
+            page(.settings).tag(MainTab.settings)
+        }
+        #else
+        // Mac: no system tab strip; all four pages stay alive and the floating bar switches them.
+        ZStack {
+            ForEach(MainTab.allCases) { item in
+                page(item)
+                    .opacity(tab == item ? 1 : 0)
+                    .allowsHitTesting(tab == item)
+                    .accessibilityHidden(tab != item)
+            }
+        }
+        #endif
+    }
+
+    @ViewBuilder private func page(_ item: MainTab) -> some View {
+        switch item {
+        case .live:
+            CatalogView(catalog: catalog, version: version).modifier(TabPage())
+        case .movies:
+            LibraryView(kind: .movie, library: library).modifier(TabPage())
+        case .series:
+            LibraryView(kind: .series, library: library).modifier(TabPage())
+        case .settings:
+            SettingsView(account: account, version: version, useTS: $useTS, onSignOut: onSignOut,
+                         onSwitchProvider: onSwitchProvider)
+                .modifier(TabPage())
+        }
+    }
+
     /// Hides the system tab bar and keeps content clear of the floating bar.
     private struct TabPage: ViewModifier {
         func body(content: Content) -> some View {
@@ -98,7 +120,7 @@ struct MainTabView: View {
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     Color.clear.frame(height: MainTabView.barSpace)
                 }
-                .toolbar(.hidden, for: .tabBar)
+                .hideTabBar()
         }
     }
 }

@@ -25,7 +25,7 @@ struct RootView: View {
     /// New value per successful connection, so the signed-in screens start fresh after a switch.
     @State private var sessionID = UUID()
 
-    private let version = "0.0.33"
+    private let version = "0.0.34"
     private var store: ProviderStore { ProviderStore.shared }
 
     var body: some View {
@@ -65,7 +65,7 @@ struct RootView: View {
                     )
                 }
             }
-            .toolbar(.hidden, for: .navigationBar)
+            .hideNavigationBar()
             .alert("Veylo", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
             } message: { Text(errorMessage ?? "") }

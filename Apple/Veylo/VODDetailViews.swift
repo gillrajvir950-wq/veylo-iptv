@@ -174,7 +174,7 @@ struct MovieDetailView: View {
             details = try? await client.movieDetails(id: item.id)
             loading = false
         }
-        .fullScreenCover(item: $playRequest) { request in
+        .veyloFullScreenCover(item: $playRequest) { request in
             VODPlayerView(request: request)
         }
         .alert("Veylo", isPresented: Binding(get: { errorText != nil }, set: { if !$0 { errorText = nil } })) {
@@ -269,7 +269,7 @@ struct SeriesDetailView: View {
         .background(Color.black)
         .overlay(alignment: .topTrailing) { CloseButton { dismiss() } }
         .task { await load() }
-        .fullScreenCover(item: $playRequest) { request in
+        .veyloFullScreenCover(item: $playRequest) { request in
             VODPlayerView(request: request)
         }
     }

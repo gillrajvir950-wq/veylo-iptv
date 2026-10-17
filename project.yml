@@ -5,16 +5,18 @@ settings:
   base:
     SWIFT_VERSION: 5.0
     IPHONEOS_DEPLOYMENT_TARGET: 17.0
+    MACOSX_DEPLOYMENT_TARGET: 14.0
 targets:
   Veylo:
     type: application
     platform: iOS
+    scheme: {}
     sources:
       - Apple/Veylo
     info:
       path: Apple/Veylo/Info.plist
       properties:
-        CFBundleDisplayName: 'Veylo 0.0.33'
+        CFBundleDisplayName: 'Veylo 0.0.34'
         UILaunchStoryboardName: LaunchScreen
         UIRequiresFullScreen: true
         UIBackgroundModes:
@@ -24,8 +26,40 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.veylo.player
-        MARKETING_VERSION: 0.0.33
-        CURRENT_PROJECT_VERSION: 33
+        MARKETING_VERSION: 0.0.34
+        CURRENT_PROJECT_VERSION: 34
         TARGETED_DEVICE_FAMILY: '1,2'
         CODE_SIGNING_ALLOWED: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  VeyloMac:
+    type: application
+    platform: macOS
+    scheme: {}
+    sources:
+      - path: Apple/Veylo
+        excludes:
+          - LaunchScreen.storyboard
+          - Info.plist
+          - Assets.xcassets
+      - Apple/VeyloMac
+    info:
+      path: Apple/VeyloMac/Info.plist
+      properties:
+        CFBundleName: Veylo
+        CFBundleDisplayName: Veylo
+        LSApplicationCategoryType: public.app-category.entertainment
+        LSMinimumSystemVersion: '14.0'
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    settings:
+      base:
+        PRODUCT_NAME: Veylo
+        PRODUCT_BUNDLE_IDENTIFIER: com.veylo.player.mac
+        MARKETING_VERSION: 0.0.34
+        CURRENT_PROJECT_VERSION: 34
+        ARCHS: arm64
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: '-'
+        DEVELOPMENT_TEAM: ''
+        ENABLE_HARDENED_RUNTIME: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

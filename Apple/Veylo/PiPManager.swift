@@ -1,3 +1,5 @@
+// iPhone/iPad only. The Mac version lives in PiPManagerMac.swift.
+#if os(iOS)
 import AVKit
 import SwiftUI
 import UIKit
@@ -156,3 +158,4 @@ struct PiPLayerHost: UIViewRepresentable {
         }
     }
 }
+#endif // os(iOS)

@@ -1,3 +1,5 @@
+// iPhone/iPad only. The Mac version lives in VLCPlaybackSurfaceMac.swift.
+#if os(iOS)
 import SwiftUI
 import UIKit
 #if canImport(MobileVLCKit)
@@ -107,3 +109,4 @@ struct VLCPlaybackSurface: View {
     }
 }
 #endif
+#endif // os(iOS)

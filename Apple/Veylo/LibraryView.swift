@@ -90,7 +90,7 @@ struct LibraryView: View {
                     .preferredColorScheme(.dark)
                 }
             }
-            .fullScreenCover(item: $playRequest) { request in
+            .veyloFullScreenCover(item: $playRequest) { request in
                 VODPlayerView(request: request)
             }
     }
@@ -150,12 +150,7 @@ struct LibraryView: View {
                 withAnimation(.snappy) { proxy.scrollTo(Self.topID, anchor: .top) }
             }
         }
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") { searchFocused = false }
-            }
-        }
+        .keyboardDoneButton { searchFocused = false }
     }
 
     // MARK: Header
@@ -204,7 +199,7 @@ struct LibraryView: View {
                 TextField("", text: $searchText,
                           prompt: Text("Search \(kindTitle.lowercased())").foregroundStyle(VeyloTheme.textTertiary))
                     .focused($searchFocused)
-                    .textInputAutocapitalization(.never)
+                    .noAutocapitalization()
                     .autocorrectionDisabled()
                     .submitLabel(.search)
                     .foregroundStyle(.white)
@@ -264,12 +259,9 @@ struct LibraryView: View {
             let groups = catalog.groups(country: countryCode)
             let featured = recent.isEmpty ? Array((groups.first?.items ?? []).prefix(6)) : Array(recent.prefix(6))
             if !featured.isEmpty {
-                TabView {
-                    ForEach(featured) { item in
-                        heroCard(item).padding(.horizontal, 20)
-                    }
+                VeyloPager(items: featured) { item in
+                    heroCard(item).padding(.horizontal, 20)
                 }
-                .tabViewStyle(.page(indexDisplayMode: featured.count > 1 ? .always : .never))
                 .frame(height: 262)
             }
             let resume = continueWatching
