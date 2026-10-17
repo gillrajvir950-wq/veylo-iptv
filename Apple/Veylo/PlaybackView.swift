@@ -137,6 +137,26 @@ struct PlaybackView: View {
         }
         .preferredColorScheme(.dark)
         .sensoryFeedback(.selection, trigger: channel.id)
+        #if os(macOS)
+        // Mac keyboard: Space pause, ←/→ channel, L channel list, R reload, Esc close.
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress(.space) { paused.toggle(); return .handled }
+        .onKeyPress(.leftArrow) { step(-1); return .handled }
+        .onKeyPress(.rightArrow) { step(1); return .handled }
+        .onKeyPress(.escape) {
+            if showList { withAnimation(.snappy) { showList = false } } else { dismiss() }
+            return .handled
+        }
+        .onKeyPress(characters: CharacterSet(charactersIn: "lLrR")) { press in
+            if press.characters.lowercased() == "l" {
+                withAnimation(.snappy) { showList.toggle() }
+            } else {
+                reload()
+            }
+            return .handled
+        }
+        #endif
         .task(id: "\(channel.id)-\(guide.revision)") { await loadGuide() }
         .onChange(of: isFailed) { _, failed in
             if failed { Task { await session.refreshAccount() } }

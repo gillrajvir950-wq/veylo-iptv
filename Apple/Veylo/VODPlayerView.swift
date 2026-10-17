@@ -266,6 +266,15 @@ struct VODPlayerView: View {
         .veyloStatusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .preferredColorScheme(.dark)
+        #if os(macOS)
+        // Mac keyboard: Space pause, ←/→ skip 10 s, Esc close.
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress(.space) { playback.togglePause(); return .handled }
+        .onKeyPress(.leftArrow) { playback.skip(-10); return .handled }
+        .onKeyPress(.rightArrow) { playback.skip(10); return .handled }
+        .onKeyPress(.escape) { close(); return .handled }
+        #endif
     }
 
     private var controls: some View {

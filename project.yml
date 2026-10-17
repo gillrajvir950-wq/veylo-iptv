@@ -47,6 +47,8 @@ targets:
       properties:
         CFBundleName: Veylo
         CFBundleDisplayName: Veylo
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.entertainment
         LSMinimumSystemVersion: '14.0'
         NSAppTransportSecurity:

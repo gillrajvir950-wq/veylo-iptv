@@ -66,6 +66,10 @@ struct RootView: View {
                 }
             }
             .hideNavigationBar()
+            #if os(macOS)
+            .padding(.top, 24) // room for the window's traffic-light buttons
+            .background(Color.black.ignoresSafeArea())
+            #endif
             .alert("Veylo", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
             } message: { Text(errorMessage ?? "") }
