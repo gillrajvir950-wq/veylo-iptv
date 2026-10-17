@@ -51,19 +51,38 @@ struct VeyloBackdrop: View {
     }
 }
 
+/// The app icon (Neon Stack + Prism V), used wherever the brand appears inside the app.
 struct VeyloBrandMark: View {
     var size: CGFloat = 40
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-                .fill(VeyloTheme.accentGradient)
-            Image(systemName: "play.fill")
-                .font(.system(size: size * 0.40, weight: .bold))
-                .foregroundStyle(.white)
-                .offset(x: size * 0.03)
-        }
-        .frame(width: size, height: size)
+        Image("BrandIcon")
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fill)
+            .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: size * 0.225, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: size * 0.225, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.12), lineWidth: max(0.5, size / 120))
+            )
+            .shadow(color: VeyloTheme.accent.opacity(size > 50 ? 0.45 : 0), radius: size * 0.25, y: size * 0.08)
+            .accessibilityHidden(true)
+    }
+}
+
+/// "veylo" set in SF Pro Expanded Heavy with a soft white-to-lavender fill.
+struct VeyloNameText: View {
+    var size: CGFloat = 22
+
+    var body: some View {
+        Text("veylo")
+            .font(.system(size: size, weight: .heavy).width(.expanded))
+            .tracking(-size * 0.02)
+            .foregroundStyle(
+                LinearGradient(colors: [.white, Color(red: 0.84, green: 0.78, blue: 1)],
+                               startPoint: .top, endPoint: .bottom)
+            )
     }
 }
 
@@ -71,12 +90,9 @@ struct VeyloWordmark: View {
     var size: CGFloat = 22
 
     var body: some View {
-        HStack(spacing: size * 0.35) {
-            VeyloBrandMark(size: size * 1.3)
-            Text("veylo")
-                .font(.system(size: size, weight: .bold, design: .rounded))
-                .tracking(-size * 0.03)
-                .foregroundStyle(.white)
+        HStack(spacing: size * 0.4) {
+            VeyloBrandMark(size: size * 1.45)
+            VeyloNameText(size: size * 0.92)
         }
     }
 }
@@ -87,11 +103,8 @@ struct ConnectingView: View {
         ZStack {
             VeyloBackdrop()
             VStack(spacing: 20) {
-                VeyloBrandMark(size: 68)
-                Text("veylo")
-                    .font(.system(size: 38, weight: .bold, design: .rounded))
-                    .tracking(-1)
-                    .foregroundStyle(.white)
+                VeyloBrandMark(size: 96)
+                VeyloNameText(size: 34)
                 HStack(spacing: 10) {
                     ProgressView().tint(.white)
                     Text("Signing you in…")

@@ -64,12 +64,9 @@ struct LoginView: View {
 
     private var header: some View {
         VStack(spacing: 16) {
-            VeyloBrandMark(size: 72)
+            VeyloBrandMark(size: 96)
             VStack(spacing: 6) {
-                Text("veylo")
-                    .font(.system(size: 40, weight: .bold, design: .rounded))
-                    .tracking(-1)
-                    .foregroundStyle(.white)
+                VeyloNameText(size: 36)
                 Text("Your live TV, beautifully simple.")
                     .font(.system(size: 16))
                     .foregroundStyle(VeyloTheme.textSecondary)

@@ -25,7 +25,7 @@ struct RootView: View {
     /// New value per successful connection, so the signed-in screens start fresh after a switch.
     @State private var sessionID = UUID()
 
-    private let version = "0.0.32"
+    private let version = "0.0.33"
     private var store: ProviderStore { ProviderStore.shared }
 
     var body: some View {
