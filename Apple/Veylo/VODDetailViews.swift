@@ -58,8 +58,8 @@ private struct CloseButton: View {
             Image(systemName: "xmark")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(.white)
-                .frame(width: 34, height: 34)
-                .background(.black.opacity(0.55), in: Circle())
+                .frame(width: 38, height: 38)
+                .veyloGlassCircle()
         }
         .buttonStyle(VeyloPressStyle(scale: 0.9))
         .padding(16)
@@ -286,10 +286,11 @@ struct SeriesDetailView: View {
                                         .font(.system(size: 14, weight: season == number ? .semibold : .medium))
                                         .foregroundStyle(season == number ? Color.black : Color.white.opacity(0.75))
                                         .padding(.horizontal, 14)
-                                        .frame(height: 32)
-                                        .background(season == number ? Color.white : VeyloTheme.fill, in: Capsule())
+                                        .frame(height: 34)
+                                        .background(season == number ? Color.white : Color.clear, in: Capsule())
                                 }
                                 .buttonStyle(.plain)
+                                .veyloGlassCapsule(interactive: true)
                             }
                         }
                     }
@@ -336,7 +337,7 @@ struct SeriesDetailView: View {
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(width: 32, height: 32)
-                        .background(.black.opacity(0.5), in: Circle())
+                        .veyloGlassCircle(interactive: false)
                 }
                 .overlay(alignment: .bottom) {
                     if let progress {

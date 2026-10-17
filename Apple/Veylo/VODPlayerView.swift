@@ -334,7 +334,7 @@ struct VODPlayerView: View {
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 40, height: 40)
-                .background(.black.opacity(0.45), in: Circle())
+                .veyloGlassCircle()
         }
         .onAppear { playback.refreshTracks() }
         .accessibilityLabel("Audio and subtitles")
@@ -388,7 +388,7 @@ struct VODPlayerView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 20)
                         .frame(height: 40)
-                        .background(.white.opacity(0.15), in: Capsule())
+                        .veyloGlassCapsule(interactive: true)
                 }
             }
             .buttonStyle(VeyloPressStyle())
@@ -401,7 +401,7 @@ struct VODPlayerView: View {
             Image(systemName: icon)
                 .font(.system(size: size * 0.38, weight: .semibold))
                 .frame(width: size, height: size)
-                .background(.black.opacity(0.45), in: Circle())
+                .veyloGlassCircle()
         }
         .buttonStyle(VeyloPressStyle(scale: 0.9))
         .accessibilityLabel(label)

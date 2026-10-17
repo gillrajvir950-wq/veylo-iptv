@@ -122,30 +122,28 @@ struct FloatingTabBar: View {
                             .font(.system(size: 10, weight: active ? .semibold : .medium))
                             .lineLimit(1)
                     }
-                    .foregroundStyle(active ? Color.white : Color.white.opacity(0.5))
+                    .foregroundStyle(active ? VeyloTheme.accent : Color.white.opacity(0.62))
                     .frame(maxWidth: .infinity)
-                    .frame(height: 54)
+                    .frame(height: 56)
                     .background {
                         if active {
                             Capsule()
-                                .fill(Color.white.opacity(0.14))
+                                .fill(Color.white.opacity(0.13))
                                 .matchedGeometryEffect(id: "active-tab", in: highlight)
                         }
                     }
                     .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(VeyloPressStyle(scale: 0.94))
                 .accessibilityLabel(tab.title)
                 .accessibilityAddTraits(active ? .isSelected : [])
             }
         }
-        .padding(5)
-        .background(.ultraThinMaterial, in: Capsule())
-        .background(Color.black.opacity(0.35), in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.white.opacity(0.1)))
-        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+        .padding(4)
+        .veyloGlassCapsule(interactive: true)
+        .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
         .environment(\.colorScheme, .dark)
-        .padding(.horizontal, 22)
+        .padding(.horizontal, 20)
         .padding(.bottom, 6)
     }
 }
@@ -161,6 +159,7 @@ struct SettingsView: View {
 
     @ObservedObject private var providers = ProviderStore.shared
     @ObservedObject private var guide = XMLTVGuide.shared
+    @ObservedObject private var session = ProviderSession.shared
     @State private var showProviders = false
     @AppStorage("veylo.recentKeys") private var recentLiveRaw = ""
     @AppStorage("veylo.favoriteKeys") private var favoriteLiveRaw = ""
@@ -168,7 +167,6 @@ struct SettingsView: View {
     @AppStorage(LibraryKeys.seriesList) private var seriesListRaw = ""
     @AppStorage(LibraryKeys.recentSeries) private var recentSeriesRaw = ""
     @AppStorage(VODProgressStore.defaultsKey) private var progressData = Data()
-    @ObservedObject private var session = ProviderSession.shared
     @State private var pending: PendingAction?
 
     private enum PendingAction: String, Identifiable {
@@ -181,7 +179,7 @@ struct SettingsView: View {
             case .progress: return "Clear Continue Watching?"
             case .favorites: return "Remove all favorite channels?"
             case .myList: return "Clear My List?"
-            case .cache: return "Clear saved posters and library data? They will download again when needed."
+            case .cache: return "Clear saved posters, logos, TV guide and library data? They will download again when needed."
             case .signOut: return "Sign out of Veylo?"
             }
         }
@@ -195,101 +193,99 @@ struct SettingsView: View {
         }
     }
 
+    private var sortedProviders: [ProviderProfile] {
+        providers.profiles.sorted { $0.lastUsed > $1.lastUsed }
+    }
+
     var body: some View {
-        List {
-            Section {
-                HStack(spacing: 14) {
-                    VeyloBrandMark(size: 46)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(account.host)
-                            .font(.system(size: 17, weight: .semibold))
-                            .lineLimit(1)
-                        Text(account.type)
-                            .font(.system(size: 13))
-                            .foregroundStyle(VeyloTheme.textSecondary)
-                    }
-                }
-                .padding(.vertical, 4)
-                if let username = account.username {
-                    LabeledContent("Username", value: username)
-                }
-                LabeledContent("Live channels", value: account.channelCount.formatted())
-                Button { showProviders = true } label: {
-                    HStack {
-                        Label("Providers", systemImage: "person.2.fill")
-                            .foregroundStyle(.white)
-                        Spacer()
-                        Text(providers.profiles.isEmpty ? "Add" : "\(providers.profiles.count) saved")
-                            .foregroundStyle(VeyloTheme.textSecondary)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(VeyloTheme.textTertiary)
-                    }
-                }
-            } header: {
-                Text("Account")
-            }
-
-            if guide.status != .none {
-                guideSection
-            }
-
-            if session.hasProvider {
-                subscriptionSection
-            }
-
-            Section {
-                Toggle("Live TV uses MPEG-TS", isOn: $useTS)
-            } header: {
-                Text("Playback")
-            } footer: {
-                Text("Recommended for reliable live playback. Changes apply the next time you sign in.")
-            }
-
-            Section {
-                settingsButton("Clear Recently Watched", icon: "clock.arrow.circlepath", action: .recents)
-                settingsButton("Clear Continue Watching", icon: "play.circle", action: .progress)
-                settingsButton("Remove Favorite Channels", icon: "heart", action: .favorites)
-                settingsButton("Clear My List", icon: "plus.circle", action: .myList)
-                settingsButton("Clear Image & Library Cache", icon: "internaldrive", action: .cache)
-            } header: {
-                Text("Library")
-            } footer: {
-                Text("Favorites, lists and watch progress are stored only on this iPhone.")
-            }
-
-            Section {
-                Button(role: .destructive) { pending = .signOut } label: {
-                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
-                        .foregroundStyle(.red)
-                }
-            } footer: {
-                Text("Signing out stops automatic sign-in. Saved providers stay in Providers until you remove them.")
-            }
-
-            Section {
-                LabeledContent("Version", value: version)
-                LabeledContent("Player", value: "VLC")
-            } header: {
-                Text("About")
-            } footer: {
-                Text("Use only streams you are authorized to access.")
-            }
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            HStack {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 26) {
                 Text("Settings")
                     .font(.system(size: 34, weight: .bold))
                     .foregroundStyle(.white)
-                Spacer()
+                    .padding(.top, 8)
+
+                accountCard
+
+                group("Providers", footer: "Tap a provider to switch. Passwords and playlist links stay in this iPhone’s Keychain.") {
+                    if !sortedProviders.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                ForEach(sortedProviders) { profile in providerChip(profile) }
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                        }
+                        rowDivider
+                    }
+                    row(icon: "person.2.fill", color: .indigo, title: "Manage Providers",
+                        value: providers.profiles.isEmpty ? "Add" : "\(providers.profiles.count) saved", chevron: true) {
+                        showProviders = true
+                    }
+                }
+
+                if session.hasProvider { subscriptionGroup }
+
+                group("Playback", footer: "MPEG-TS is the most reliable for live channels. Changes apply the next time you sign in.") {
+                    HStack(spacing: 14) {
+                        SettingsIcon(symbol: "play.rectangle.fill", color: .pink)
+                        Toggle("Live TV uses MPEG-TS", isOn: $useTS)
+                            .tint(VeyloTheme.accent)
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 52)
+                    rowDivider
+                    infoRow(icon: "pip.fill", color: .teal, title: "Picture in Picture",
+                            value: PiPManager.isSupported ? "Available" : "Not supported")
+                }
+
+                if guide.status != .none { guideGroup }
+
+                group("Library & Storage", footer: "Favorites, lists and watch progress are stored only on this iPhone.") {
+                    actionRow(icon: "clock.arrow.circlepath", color: .orange, title: "Clear Recently Watched", action: .recents)
+                    rowDivider
+                    actionRow(icon: "play.circle.fill", color: .blue, title: "Clear Continue Watching", action: .progress)
+                    rowDivider
+                    actionRow(icon: "heart.fill", color: .pink, title: "Remove Favorite Channels", action: .favorites)
+                    rowDivider
+                    actionRow(icon: "plus.circle.fill", color: .green, title: "Clear My List", action: .myList)
+                    rowDivider
+                    actionRow(icon: "internaldrive.fill", color: .gray, title: "Clear Image & Library Cache", action: .cache)
+                }
+
+                group("About", footer: "Use only streams you are authorized to access.") {
+                    infoRow(icon: "app.badge.fill", color: VeyloTheme.accentDeep, title: "Version", value: version)
+                    rowDivider
+                    infoRow(icon: "film.stack.fill", color: .orange, title: "Player", value: "VLC")
+                }
+
+                Button { pending = .signOut } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "rectangle.portrait.and.arrow.right")
+                        Text("Sign Out")
+                    }
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(VeyloPressStyle())
+                .veyloGlassCapsule(interactive: true)
+
+                Text("Signing out stops automatic sign-in. Saved providers stay until you remove them.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(VeyloTheme.textTertiary)
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, -14)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
-            .background(Color.black)
+            .padding(.horizontal, 18)
+            .padding(.bottom, 24)
+            .frame(maxWidth: 640)
+            .frame(maxWidth: .infinity)
         }
-        .scrollContentBackground(.hidden)
-        .background(Color.black.ignoresSafeArea())
+        .background(VeyloBackdrop(glow: 0.8))
         .sheet(isPresented: $showProviders) {
             ProvidersView(onSelect: onSwitchProvider)
         }
@@ -298,68 +294,254 @@ struct SettingsView: View {
             Button(action.button, role: .destructive) { perform(action) }
             Button("Cancel", role: .cancel) {}
         }
+        .task { if session.hasProvider { await session.refreshAccount() } }
     }
 
-    private var guideSection: some View {
-        Section {
-            switch guide.status {
-            case .loading:
-                HStack(spacing: 10) {
-                    ProgressView()
-                    Text("Loading TV guide…").foregroundStyle(VeyloTheme.textSecondary)
+    // MARK: Account card
+
+    private var accountCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(VeyloTheme.accentGradient)
+                    Image(systemName: account.type.hasPrefix("M3U") ? "list.bullet.rectangle.fill" : "server.rack")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.white)
                 }
-            case .ready(let channels, let updated):
-                LabeledContent("Channels with guide", value: channels.formatted())
-                LabeledContent("Updated", value: updated.formatted(.relative(presentation: .named)))
-            case .failed(let message):
-                Text("Couldn’t load the TV guide. \(message)")
-                    .font(.system(size: 14))
-                    .foregroundStyle(VeyloTheme.textSecondary)
-            case .none:
-                EmptyView()
+                .frame(width: 56, height: 56)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(account.host)
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Text(account.username.map { "\(account.type) · \($0)" } ?? account.type)
+                        .font(.system(size: 14))
+                        .foregroundStyle(VeyloTheme.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                if let info = session.account {
+                    statusPill(info)
+                }
             }
-        } header: {
-            Text("TV Guide (EPG)")
+            HStack(spacing: 10) {
+                stat(value: account.channelCount.formatted(), label: "Channels")
+                if let info = session.account, let max = info.maxConnections, max > 0 {
+                    stat(value: "\(info.activeConnections ?? 0)/\(max)", label: "Connections",
+                         warning: info.connectionsFull)
+                }
+                if let info = session.account {
+                    stat(value: Self.daysLeft(info.expires), label: "Plan left", warning: info.isExpired)
+                } else if case .ready(let channels, _) = guide.status {
+                    stat(value: channels.formatted(), label: "With guide")
+                }
+            }
         }
+        .padding(18)
+        .veyloGlass(in: RoundedRectangle(cornerRadius: 28, style: .continuous), tint: VeyloTheme.accent.opacity(0.12))
     }
 
-    private var subscriptionSection: some View {
-        Section {
-            if let info = session.account {
-                LabeledContent("Status") {
-                    Text(Self.statusText(info))
-                        .foregroundStyle(info.isExpired || !info.isActive ? Color.red : Color.green)
+    private func statusPill(_ info: ProviderAccountInfo) -> some View {
+        let bad = info.isExpired || !info.isActive
+        return HStack(spacing: 5) {
+            Circle().fill(bad ? Color.red : Color.green).frame(width: 7, height: 7)
+            Text(Self.statusText(info))
+        }
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 10)
+        .frame(height: 26)
+        .background((bad ? Color.red : Color.green).opacity(0.18), in: Capsule())
+    }
+
+    private func stat(value: String, label: String, warning: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value)
+                .font(.system(size: 17, weight: .bold).monospacedDigit())
+                .foregroundStyle(warning ? Color.orange : Color.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(VeyloTheme.textTertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func providerChip(_ profile: ProviderProfile) -> some View {
+        let active = profile.id == providers.activeID
+        return Button {
+            if !active { onSwitchProvider(profile) }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: profile.kind == .xtream ? "server.rack" : "list.bullet.rectangle")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(profile.name)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+                if active {
+                    Image(systemName: "checkmark.circle.fill").font(.system(size: 13))
                 }
-                LabeledContent("Expires", value: Self.expiryText(info.expires))
+            }
+            .foregroundStyle(active ? Color.black : Color.white)
+            .padding(.horizontal, 14)
+            .frame(height: 38)
+            .background(active ? Color.white : Color.white.opacity(0.1), in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(VeyloPressStyle())
+        .accessibilityLabel(active ? "\(profile.name), active" : "Switch to \(profile.name)")
+    }
+
+    // MARK: Groups
+
+    private var subscriptionGroup: some View {
+        group("Subscription", footer: "When all connections are in use, channels won’t start until another device stops watching.") {
+            if let info = session.account {
+                infoRow(icon: "checkmark.seal.fill", color: info.isExpired || !info.isActive ? .red : .green,
+                        title: "Status", value: Self.statusText(info))
+                rowDivider
+                infoRow(icon: "calendar", color: .red, title: "Expires", value: Self.expiryText(info.expires))
                 if let max = info.maxConnections, max > 0 {
-                    LabeledContent("Connections") {
-                        Text("\(info.activeConnections ?? 0) of \(max) in use")
-                            .foregroundStyle(info.connectionsFull ? Color.orange : VeyloTheme.textSecondary)
-                    }
+                    rowDivider
+                    infoRow(icon: "dot.radiowaves.left.and.right", color: .blue, title: "Connections",
+                            value: "\(info.activeConnections ?? 0) of \(max) in use")
                 }
                 if info.isTrial {
-                    LabeledContent("Plan", value: "Trial")
+                    rowDivider
+                    infoRow(icon: "hourglass", color: .yellow, title: "Plan", value: "Trial")
                 }
             } else if session.loadingAccount {
                 HStack(spacing: 10) {
-                    ProgressView()
+                    ProgressView().tint(.white)
                     Text("Checking subscription…").foregroundStyle(VeyloTheme.textSecondary)
                 }
+                .padding(14)
             } else if let error = session.accountError {
                 Text("Couldn’t load subscription details. \(error)")
                     .font(.system(size: 14))
                     .foregroundStyle(VeyloTheme.textSecondary)
+                    .padding(14)
             }
-            Button { Task { await session.refreshAccount() } } label: {
-                Label("Refresh", systemImage: "arrow.clockwise").foregroundStyle(.white)
+            rowDivider
+            row(icon: "arrow.clockwise", color: .gray, title: session.loadingAccount ? "Refreshing…" : "Refresh",
+                value: nil, chevron: false) {
+                Task { await session.refreshAccount() }
             }
             .disabled(session.loadingAccount)
-        } header: {
-            Text("Subscription")
-        } footer: {
-            Text("When all connections are in use, channels won’t start until another device stops watching.")
         }
-        .task { await session.refreshAccount() }
+    }
+
+    private var guideGroup: some View {
+        group("TV Guide (EPG)", footer: nil) {
+            switch guide.status {
+            case .loading:
+                HStack(spacing: 14) {
+                    SettingsIcon(symbol: "list.bullet.rectangle.portrait.fill", color: .purple)
+                    Text("Loading TV guide…").foregroundStyle(.white)
+                    Spacer()
+                    ProgressView().tint(.white)
+                }
+                .padding(.horizontal, 14)
+                .frame(minHeight: 52)
+            case .ready(let channels, let updated):
+                infoRow(icon: "list.bullet.rectangle.portrait.fill", color: .purple,
+                        title: "Channels with guide", value: channels.formatted())
+                rowDivider
+                infoRow(icon: "clock.fill", color: .gray, title: "Updated",
+                        value: updated.formatted(.relative(presentation: .named)))
+            case .failed(let message):
+                HStack(alignment: .top, spacing: 14) {
+                    SettingsIcon(symbol: "exclamationmark.triangle.fill", color: .orange)
+                    Text("Couldn’t load the TV guide. \(message)")
+                        .font(.system(size: 14))
+                        .foregroundStyle(VeyloTheme.textSecondary)
+                }
+                .padding(14)
+            case .none:
+                EmptyView()
+            }
+        }
+    }
+
+    // MARK: Building blocks
+
+    private func group<Content: View>(_ title: String, footer: String?, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased())
+                .font(.system(size: 12, weight: .semibold))
+                .tracking(0.6)
+                .foregroundStyle(VeyloTheme.textTertiary)
+                .padding(.horizontal, 6)
+            VStack(spacing: 0) { content() }
+                .veyloGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            if let footer {
+                Text(footer)
+                    .font(.system(size: 12))
+                    .foregroundStyle(VeyloTheme.textTertiary)
+                    .padding(.horizontal, 6)
+            }
+        }
+    }
+
+    private var rowDivider: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.08))
+            .frame(height: 0.5)
+            .padding(.leading, 58)
+    }
+
+    private func row(icon: String, color: Color, title: String, value: String?, chevron: Bool,
+                     action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                SettingsIcon(symbol: icon, color: color)
+                Text(title)
+                    .font(.system(size: 16))
+                    .foregroundStyle(.white)
+                Spacer(minLength: 8)
+                if let value {
+                    Text(value)
+                        .font(.system(size: 15))
+                        .foregroundStyle(VeyloTheme.textSecondary)
+                        .lineLimit(1)
+                }
+                if chevron {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(VeyloTheme.textTertiary)
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 52)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(VeyloPressStyle(scale: 0.98))
+    }
+
+    private func infoRow(icon: String, color: Color, title: String, value: String) -> some View {
+        HStack(spacing: 14) {
+            SettingsIcon(symbol: icon, color: color)
+            Text(title)
+                .font(.system(size: 16))
+                .foregroundStyle(.white)
+            Spacer(minLength: 8)
+            Text(value)
+                .font(.system(size: 15))
+                .foregroundStyle(VeyloTheme.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 52)
+    }
+
+    private func actionRow(icon: String, color: Color, title: String, action: PendingAction) -> some View {
+        row(icon: icon, color: color, title: title, value: nil, chevron: false) { pending = action }
     }
 
     private static func statusText(_ info: ProviderAccountInfo) -> String {
@@ -376,11 +558,10 @@ struct SettingsView: View {
         return "\(formatted) · \(days) day\(days == 1 ? "" : "s") left"
     }
 
-    private func settingsButton(_ title: String, icon: String, action: PendingAction) -> some View {
-        Button { pending = action } label: {
-            Label(title, systemImage: icon)
-                .foregroundStyle(.white)
-        }
+    private static func daysLeft(_ date: Date?) -> String {
+        guard let date else { return "∞" }
+        let days = Calendar.current.dateComponents([.day], from: Date(), to: date).day ?? 0
+        return days < 0 ? "Expired" : "\(days) d"
     }
 
     private func perform(_ action: PendingAction) {
@@ -405,5 +586,19 @@ struct SettingsView: View {
             onSignOut()
         }
         pending = nil
+    }
+}
+
+/// iOS Settings-style coloured icon tile.
+struct SettingsIcon: View {
+    let symbol: String
+    let color: Color
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 30, height: 30)
+            .background(color.gradient, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }

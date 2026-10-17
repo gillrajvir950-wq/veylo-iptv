@@ -240,9 +240,9 @@ struct CatalogView: View {
             .font(.system(size: 14, weight: .medium))
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
-            .frame(height: 36)
+            .frame(height: 38)
             .frame(maxWidth: 170)
-            .background(VeyloTheme.fill, in: Capsule())
+            .veyloGlassCapsule(interactive: true)
         }
         .accessibilityLabel("Country filter")
     }
@@ -267,9 +267,9 @@ struct CatalogView: View {
                 .accessibilityLabel("Clear search")
             }
         }
-        .padding(.horizontal, 12)
-        .frame(height: 40)
-        .background(VeyloTheme.fill, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .padding(.horizontal, 16)
+        .frame(height: 46)
+        .veyloGlassCapsule(interactive: true)
     }
 
     // MARK: Type tabs (pinned while scrolling)
@@ -277,12 +277,14 @@ struct CatalogView: View {
     private var chipBar: some View {
         ScrollViewReader { chipProxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 6) {
-                    chip("Home", target: .home)
-                    chip("Favorites", target: .favorites)
-                    ForEach(slice.genres) { genre in
-                        chip(genre.title, target: .genre(genre))
-                            .id(genre)
+                VeyloGlassGroup(spacing: 8) {
+                    HStack(spacing: 8) {
+                        chip("Home", target: .home)
+                        chip("Favorites", target: .favorites)
+                        ForEach(slice.genres) { genre in
+                            chip(genre.title, target: .genre(genre))
+                                .id(genre)
+                        }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -295,9 +297,8 @@ struct CatalogView: View {
             }
         }
         .background {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .overlay(Color.black.opacity(0.55))
+            LinearGradient(colors: [.black, .black.opacity(0.85), .black.opacity(0)],
+                           startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea(edges: .top)
         }
     }
@@ -314,14 +315,15 @@ struct CatalogView: View {
         return Button { select(target) } label: {
             Text(title)
                 .font(.system(size: 15, weight: active ? .semibold : .medium))
-                .foregroundStyle(active ? Color.black : Color.white.opacity(0.75))
+                .foregroundStyle(active ? Color.black : Color.white.opacity(0.85))
                 .lineLimit(1)
-                .padding(.horizontal, 15)
-                .frame(height: 34)
+                .padding(.horizontal, 16)
+                .frame(height: 36)
                 .background(active ? Color.white : Color.clear, in: Capsule())
                 .contentShape(Capsule())
         }
         .buttonStyle(VeyloPressStyle())
+        .veyloGlassCapsule(interactive: true)
     }
 
     // MARK: Content
@@ -542,7 +544,7 @@ struct CatalogView: View {
                             .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(.white)
                             .padding(6)
-                            .background(.black.opacity(0.5), in: Circle())
+                            .veyloGlassCircle(interactive: false, tint: VeyloTheme.live.opacity(0.6))
                             .padding(6)
                     }
                 }

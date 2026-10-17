@@ -215,9 +215,9 @@ struct LibraryView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 12)
-            .frame(height: 40)
-            .background(VeyloTheme.fill, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .padding(.horizontal, 16)
+            .frame(height: 46)
+            .veyloGlassCapsule(interactive: true)
         }
         .padding(.horizontal, 20)
         .padding(.top, 6)
@@ -250,9 +250,9 @@ struct LibraryView: View {
             .font(.system(size: 14, weight: .medium))
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
-            .frame(height: 36)
+            .frame(height: 38)
             .frame(maxWidth: 170)
-            .background(VeyloTheme.fill, in: Capsule())
+            .veyloGlassCapsule(interactive: true)
         }
     }
 

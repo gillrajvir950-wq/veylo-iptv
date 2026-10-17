@@ -28,15 +28,23 @@ struct VeyloBackdrop: View {
     var glow: Double = 1
 
     var body: some View {
+        // Soft colour pools give Liquid Glass something to refract (glass over pure black looks flat).
         ZStack(alignment: .top) {
             VeyloTheme.background
             RadialGradient(
-                colors: [VeyloTheme.accent.opacity(0.20 * glow), .clear],
-                center: .top,
+                colors: [VeyloTheme.accent.opacity(0.26 * glow), .clear],
+                center: UnitPoint(x: 0.15, y: 0),
                 startRadius: 0,
-                endRadius: 420
+                endRadius: 380
             )
-            .frame(height: 520)
+            .frame(height: 560)
+            RadialGradient(
+                colors: [Color(red: 0.20, green: 0.45, blue: 1).opacity(0.16 * glow), .clear],
+                center: UnitPoint(x: 0.95, y: 0.12),
+                startRadius: 0,
+                endRadius: 320
+            )
+            .frame(height: 560)
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)

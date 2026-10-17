@@ -88,7 +88,7 @@ struct LoginView: View {
             connectButton
         }
         .padding(18)
-        .background(VeyloTheme.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .veyloGlass(in: RoundedRectangle(cornerRadius: 30, style: .continuous))
     }
 
     private var modePicker: some View {
@@ -97,7 +97,7 @@ struct LoginView: View {
             modeOption("M3U Playlist", icon: "list.bullet.rectangle", value: 1)
         }
         .padding(4)
-        .background(Color.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.black.opacity(0.35), in: Capsule())
     }
 
     private func modeOption(_ title: String, icon: String, value: Int) -> some View {
@@ -112,8 +112,8 @@ struct LoginView: View {
                 .padding(.vertical, 11)
                 .background {
                     if mode == value {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(VeyloTheme.surfaceRaised)
+                        Capsule()
+                            .fill(Color.white.opacity(0.16))
                             .matchedGeometryEffect(id: "mode", in: modeNamespace)
                     }
                 }
@@ -170,8 +170,8 @@ struct LoginView: View {
                 Divider().overlay(VeyloTheme.stroke)
                 optionRow("MPEG-TS streams", detail: "Recommended for reliable playback", isOn: $useTS)
             }
-            .padding(.horizontal, 14)
-            .background(VeyloTheme.fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .padding(.horizontal, 16)
+            .background(Color.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .padding(.top, 4)
         }
     }
@@ -203,8 +203,8 @@ struct LoginView: View {
             VStack(spacing: 0) {
                 optionRow("Save this provider", detail: "Kept securely in Keychain · opens automatically", isOn: $staySignedIn)
             }
-            .padding(.horizontal, 14)
-            .background(VeyloTheme.fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .padding(.horizontal, 16)
+            .background(Color.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }
 
@@ -223,7 +223,7 @@ struct LoginView: View {
             .foregroundStyle(.black)
             .frame(maxWidth: .infinity)
             .frame(height: 54)
-            .background(.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(.white, in: Capsule())
         }
         .buttonStyle(VeyloPressStyle())
         .disabled(!canConnect)
@@ -249,11 +249,11 @@ struct LoginView: View {
             content()
                 .foregroundStyle(.white)
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 16)
         .frame(height: 52)
-        .background(VeyloTheme.fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(active ? Color.white.opacity(0.35) : Color.clear, lineWidth: 1)
         )
         .animation(.easeOut(duration: 0.15), value: active)

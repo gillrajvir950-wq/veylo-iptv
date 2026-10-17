@@ -110,8 +110,8 @@ struct PlaybackView: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 16)
-                        .frame(height: 36)
-                        .background(.black.opacity(0.7), in: Capsule())
+                        .frame(height: 38)
+                        .veyloGlassCapsule()
                         .padding(.top, full ? 70 : box.height / 2 - 18)
                         .transition(.opacity)
                         .allowsHitTesting(false)
@@ -327,7 +327,7 @@ struct PlaybackView: View {
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 9)
-                                .background(.white.opacity(0.18), in: Capsule())
+                                .veyloGlassCapsule(interactive: true)
                         }
                     }
                 }
@@ -503,6 +503,7 @@ struct PlaybackView: View {
                     }
                 }
                 Spacer()
+                VeyloGlassGroup(spacing: 30) {
                 HStack(spacing: 44) {
                     roundControl("backward.end.fill", size: 54, label: "Previous channel") { step(-1) }
                         .opacity(canSwitch ? 1 : 0)
@@ -513,6 +514,7 @@ struct PlaybackView: View {
                     roundControl("forward.end.fill", size: 54, label: "Next channel") { step(1) }
                         .opacity(canSwitch ? 1 : 0)
                         .disabled(!canSwitch)
+                }
                 }
                 Spacer()
                 HStack(spacing: 10) {
@@ -556,8 +558,7 @@ struct PlaybackView: View {
             }
             .frame(width: 340)
             .frame(maxHeight: .infinity)
-            .background(.ultraThinMaterial)
-            .background(Color.black.opacity(0.6))
+            .veyloGlass(in: Rectangle(), tint: .black.opacity(0.45))
             .environment(\.colorScheme, .dark)
         }
         .ignoresSafeArea()
@@ -667,8 +668,8 @@ struct PlaybackView: View {
             Image(systemName: icon)
                 .font(.system(size: 19, weight: .semibold))
                 .foregroundStyle(.white)
-                .frame(width: 46, height: 46)
-                .background(VeyloTheme.fill, in: Circle())
+                .frame(width: 48, height: 48)
+                .veyloGlassCircle()
         }
         .buttonStyle(VeyloPressStyle(scale: 0.88))
         .accessibilityLabel(label)
@@ -680,7 +681,7 @@ struct PlaybackView: View {
                 .font(.system(size: size * 0.38, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: size, height: size)
-                .background(Color.black.opacity(0.5), in: Circle())
+                .veyloGlassCircle()
         }
         .buttonStyle(VeyloPressStyle(scale: 0.9))
         .accessibilityLabel(label)
@@ -692,8 +693,7 @@ struct PlaybackView: View {
                 .font(.system(size: size * 0.36, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: size, height: size)
-                .background(.black.opacity(0.5), in: Circle())
-                .overlay(Circle().strokeBorder(.white.opacity(0.15)))
+                .veyloGlassCircle()
         }
         .buttonStyle(VeyloPressStyle(scale: 0.9))
         .accessibilityLabel(label)
@@ -705,8 +705,8 @@ struct PlaybackView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 14)
-                .frame(height: 34)
-                .background(.black.opacity(0.5), in: Capsule())
+                .frame(height: 36)
+                .veyloGlassCapsule(interactive: true)
         }
         .buttonStyle(VeyloPressStyle())
     }
