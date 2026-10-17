@@ -50,6 +50,13 @@ jobs:
           APP="$RUNNER_TEMP/VeyloBuild/Build/Products/Release-iphoneos/Veylo.app"
           test -f "$APP/Assets.car"
           /usr/libexec/PlistBuddy -c "Print :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName" "$APP/Info.plist" | grep -qx AppIcon
+      - name: Report SDK (Liquid Glass needs iphoneos26+)
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/VeyloBuild/Build/Products/Release-iphoneos/Veylo.app"
+          SDK=$(/usr/libexec/PlistBuddy -c "Print :DTSDKName" "$APP/Info.plist")
+          XC=$(xcodebuild -version | tr '\n' ' ')
+          echo "::notice title=Build SDK::$SDK — $XC"
       - name: Package unsigned IPA for external signing
         run: |
           set -euo pipefail
