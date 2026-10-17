@@ -17,6 +17,10 @@ struct VLCPlaybackSurface: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
         view.backgroundColor = .black
+        // Touches go to the SwiftUI controls above (the video can be zoomed larger than the screen
+        // in Fill/Stretch, and VLC's view would otherwise swallow every button tap). Display only;
+        // playback startup is unchanged.
+        view.isUserInteractionEnabled = false
         context.coordinator.configure(url: url, on: view, id: playbackID, paused: isPaused, report: onStateChange)
         return view
     }
