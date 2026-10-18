@@ -41,6 +41,7 @@ html.playing, body.playing, body.playing #app { background: transparent; }
 
 .backdrop {
   position: absolute; top: 0; right: 0; bottom: 0; left: 0;
+  will-change: transform; transform: translateZ(0);
   background:
     radial-gradient(900px 600px at 8% -10%, rgba(158, 99, 255, 0.30), transparent 70%),
     radial-gradient(700px 500px at 100% 0%, rgba(51, 115, 255, 0.16), transparent 70%),
@@ -128,8 +129,9 @@ html.playing, body.playing, body.playing #app { background: transparent; }
 .sidebar .brand { margin-bottom: 30px; }
 .sidebar .brand img { width: 52px; height: 52px; border-radius: 12px; }
 .sidebar .brand span { font-size: 36px; }
-.vlist { position: relative; overflow: hidden; flex: none; }
-.vlist-inner { position: relative; }
+.vlist { position: relative; overflow: hidden; flex: none; contain: strict; }
+/* The row buffer slides on the GPU; its own layer keeps the rest of the screen from repainting. */
+.vlist-inner { position: relative; padding-top: 4px; will-change: transform; -webkit-transition: -webkit-transform 0.09s ease-out; transition: transform 0.09s ease-out; }
 /* Fixed heights (1920×1080 screen): older TV engines measured flex heights as ~0. */
 #cats { height: 888px; }        /* 12 rows × 74 */
 #channels { height: 896px; }    /* 8 rows × 112 */
@@ -175,6 +177,7 @@ html.playing, body.playing, body.playing #app { background: transparent; }
 
 .details { width: 560px; padding: 0 50px 0 20px; }
 .preview {
+  will-change: transform; transform: translateZ(0);
   border-radius: 30px; padding: 34px; height: 100%; max-height: 860px;
   background: linear-gradient(180deg, rgba(40, 34, 52, 0.85), rgba(16, 14, 20, 0.85));
   border: 1px solid var(--line);
@@ -292,3 +295,6 @@ html.playing, body.playing, body.playing #app { background: transparent; }
 .acc-btn.danger.focused { background: #ff453a; color: #fff; }
 .acc-hints { position: absolute; left: 0; right: 0; bottom: 0; }
 .acc-card.focused .pill { background: var(--accent); color: #fff; }
+
+/* Browser: no animated focus (each animation frame repaints on the TV). */
+.cat, .row { -webkit-transition: none; transition: none; }

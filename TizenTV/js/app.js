@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.1.3';
+  var VERSION = '0.1.4';
 
   // ---------- Keys ----------
   var K = {
@@ -74,17 +74,21 @@
   function clamp(value, low, high) { return Math.max(low, Math.min(high, value)); }
 
   // ---------- Virtual list (handles thousands of rows) ----------
-  // Rows are laid out in normal flow (no absolute positions) and the list has a fixed height
-  // from CSS: on the TV's older engine flex heights measured ~0, so rows piled up in one slot.
+  // A buffer of rows (a few screens' worth) is built at once and slid with a GPU transform;
+  // moving the highlight only swaps one class. Rows are only rebuilt when the window leaves
+  // the buffer (every ~2–3 screens), not on every key press.
+  // The list has a fixed CSS height (older TV engines measured flex heights as ~0).
   function VList(container, rowHeight, renderRow, rows) {
     this.container = container;
-    this.rows = rows || 8;
     this.inner = container.querySelector('.vlist-inner');
     this.rowHeight = rowHeight;
     this.renderRow = renderRow;
+    this.rows = rows || 8;
     this.items = [];
     this.index = 0;
     this.top = 0;
+    this.bufStart = 0;
+    this.bufEnd = 0;
     this.focused = false;
   }
 
@@ -101,42 +105,75 @@
     return Math.max(1, Math.floor(height / this.rowHeight));
   };
 
+  /** Keeps `index` inside the visible window; returns the window's first row. */
+  VList.prototype.windowTop = function () {
+    var visible = this.visibleCount();
+    var top = this.top;
+    if (this.index < top) top = this.index;
+    if (this.index >= top + visible) top = this.index - visible + 1;
+    return clamp(top, 0, Math.max(0, this.items.length - visible));
+  };
+
   VList.prototype.move = function (delta) {
     if (!this.items.length) return false;
     var next = clamp(this.index + delta, 0, this.items.length - 1);
     if (next === this.index) return false;
-    var visible = this.visibleCount();
     var old = this.index;
     this.index = next;
-    // Inside the visible window: just move the highlight (no rebuild, no image reloads).
-    if (this.focused && next >= this.top && next < this.top + visible) {
+    var top = this.windowTop();
+    var visible = this.visibleCount();
+    // Window (plus the partly visible next row) still inside the built rows: just slide.
+    if (top >= this.bufStart && Math.min(this.items.length, top + visible + 1) <= this.bufEnd) {
       var rows = this.inner.children;
-      var a = rows[old - this.top], b = rows[next - this.top];
-      if (a && b) {
-        a.classList.remove('focused');
-        b.classList.add('focused');
+      var a = rows[old - this.bufStart], b = rows[next - this.bufStart];
+      if (b) {
+        if (a) a.classList.remove('focused');
+        if (this.focused) b.classList.add('focused');
+        this.top = top;
+        this.slide(true);
         return true;
       }
     }
-    this.render();
+    this.top = top;
+    this.build(delta > 0 ? 1 : -1);
     return true;
   };
 
-  VList.prototype.render = function () {
+  VList.prototype.slide = function (animate) {
+    var y = -(this.top - this.bufStart) * this.rowHeight;
+    this.inner.style.transition = animate ? '' : 'none';
+    this.inner.style.transform = 'translate3d(0,' + y + 'px,0)';
+    this.inner.style.webkitTransform = 'translate3d(0,' + y + 'px,0)';
+  };
+
+  /** Rebuilds the row buffer around the window, leaving more room in the direction of travel. */
+  VList.prototype.build = function (direction) {
     var visible = this.visibleCount();
-    if (this.index < this.top) this.top = this.index;
-    if (this.index >= this.top + visible) this.top = this.index - visible + 1;
-    this.top = clamp(this.top, 0, Math.max(0, this.items.length - visible));
-    var end = Math.min(this.items.length, this.top + visible + 1);
+    var size = visible * 4;
+    var start;
+    if (direction > 0) start = this.top - 2;
+    else if (direction < 0) start = this.top + visible + 2 - size;
+    else start = this.top - visible;
+    start = clamp(start, 0, Math.max(0, this.items.length - size));
+    var end = Math.min(this.items.length, start + size);
+    this.bufStart = start;
+    this.bufEnd = end;
     var html = '';
-    for (var i = this.top; i < end; i++) {
-      html += this.renderRow(this.items[i], i, i === this.index && this.focused, (i - this.top) * this.rowHeight);
+    for (var i = start; i < end; i++) {
+      html += this.renderRow(this.items[i], i, i === this.index && this.focused, 0);
     }
     // Replace the node instead of only its innerHTML so no old row paint can stay behind.
     var fresh = this.inner.cloneNode(false);
     fresh.innerHTML = html;
     this.container.replaceChild(fresh, this.inner);
     this.inner = fresh;
+    this.slide(false);
+  };
+
+  /** Full redraw (focus changes, favorites, new section). */
+  VList.prototype.render = function () {
+    this.top = this.windowTop();
+    this.build(0);
   };
 
   VList.prototype.current = function () { return this.items[this.index]; };
