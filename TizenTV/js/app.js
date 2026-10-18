@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.2.9';
+  var VERSION = '0.2.10';
 
   // ---------- Keys ----------
   var K = {
@@ -1550,6 +1550,9 @@
       if (!box) return;
       clearInterval(this.loadTimer);
       box.style.top = state === 'error' ? '18%' : '';
+      // While the picture plays the box is taken out completely: on the TV an emptied box left a
+      // small dot from the loading circle over the video (user video, 0.2.9).
+      box.style.display = state === 'playing' || state === 'paused' || !state ? 'none' : '';
       if (state === 'buffering') {
         box.innerHTML = '<div class="spinner"></div>Buffering…';
       } else if (state === 'loading') {

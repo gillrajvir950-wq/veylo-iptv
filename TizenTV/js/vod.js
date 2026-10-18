@@ -655,7 +655,7 @@
 
   function status(text) {
     var box = document.getElementById('vod-status');
-    if (box) box.innerHTML = text;
+    if (box) { box.innerHTML = text; box.style.display = text ? '' : 'none'; }   // no leftover dot over the video
   }
 
   function showOverlay(stay) {
