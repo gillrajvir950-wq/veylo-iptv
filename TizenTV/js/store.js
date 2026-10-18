@@ -161,6 +161,11 @@
       write(scoped('veylo.tv.vodProgress'), all);
     },
 
+    lastChannel: function () { return read(scoped('veylo.tv.lastChannel'), ''); },
+    setLastChannel: function (key) { write(scoped('veylo.tv.lastChannel'), key); },
+    autostart: function () { return read('veylo.tv.autostart', true); },
+    setAutostart: function (on) { write('veylo.tv.autostart', !!on); },
+
     /** 'ts' (default, like the iPhone app) or 'm3u8' for Xtream live streams. */
     format: function () { return read(KEYS.format, 'ts'); },
     setFormat: function (value) { write(KEYS.format, value); },

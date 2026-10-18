@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.2.0';
+  var VERSION = '0.2.1';
 
   // ---------- Keys ----------
   var K = {
@@ -14,14 +14,14 @@
     BACK: 10009, ESC: 27, BACKSPACE: 8,
     CH_UP: 427, CH_DOWN: 428,
     PLAY_PAUSE: 10252, PLAY: 415, PAUSE: 19, STOP: 413,
-    RED: 403, GREEN: 404, YELLOW: 405, BLUE: 406, INFO: 457,
+    RED: 403, GREEN: 404, YELLOW: 405, BLUE: 406, INFO: 457, PRECH: 10190,
     IME_DONE: 65376, IME_CANCEL: 65385
   };
 
   function registerKeys() {
     try {
       var keys = ['ChannelUp', 'ChannelDown', 'MediaPlayPause', 'MediaPlay', 'MediaPause', 'MediaStop',
-        'ColorF0Red', 'ColorF1Green', 'ColorF2Yellow', 'ColorF3Blue', 'Info',
+        'ColorF0Red', 'ColorF1Green', 'ColorF2Yellow', 'ColorF3Blue', 'Info', 'PreviousChannel',
         '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
       keys.forEach(function (k) {
         try { global.tizen.tvinputdevice.registerKey(k); } catch (e) { /* not supported on this model */ }
@@ -527,7 +527,7 @@
 
   /** `retries` (auto sign-in at app start): the TV's network is often not up yet right after
    *  power-on, so "couldn't reach" / timeouts are retried a few seconds later. */
-  function connect(profile, save, formState, retries) {
+  function connect(profile, save, formState, retries, autostart) {
     showLoading('Connecting to ' + (profile.name || Store.hostOf(profile.server || profile.playlistURL)) + '…');
     API.connect(profile, Store.format()).then(function (result) {
       var saved = profile;
@@ -548,13 +548,15 @@
       App.byKey = {};
       result.channels.forEach(function (c) { App.byKey[c.key] = c; });
       Browser.reset();
+      PlayerScreen.previous = null;
       showBrowser();
+      if (autostart && Store.autostart()) startLastChannel();
     }).catch(function (error) {
       var offline = error && (error.status === 0 || error.status === -1);
       if (retries > 0 && offline) {
         showLoading('Waiting for the network…');
         setTimeout(function () {
-          if (App.screen === 'loading') connect(profile, save, formState, retries - 1);
+          if (App.screen === 'loading') connect(profile, save, formState, retries - 1, autostart);
         }, 4000);
         return;
       }
@@ -562,6 +564,17 @@
       if (formState) showLogin(message, formState);
       else showLogin('Couldn’t open ' + (profile.name || 'the saved provider') + '. ' + message);
     });
+  }
+
+  /** App start: the channel watched last (on this account) plays straight away. */
+  function startLastChannel() {
+    var key = Store.lastChannel();
+    var channel = key && App.byKey[key];
+    if (!channel) return;
+    var cat = App.session.categories.filter(function (c) { return c.channels.indexOf(channel) >= 0; })[0];
+    var lineup = cat ? cat.channels : App.session.channels;
+    Browser.focus = 'list';
+    showPlayer(lineup, lineup.indexOf(channel), cat ? API.title(cat.name) : 'All Channels');
   }
 
   // ---------- Browser (categories + channels) ----------
@@ -874,7 +887,7 @@
       var channel = Browser.chList.current();
       if (channel) {
         Browser.positions[section.id] = Browser.chList.index;
-        showPlayer(section.channels, Browser.chList.index);
+        showPlayer(section.channels, Browser.chList.index, section.id === 'search' ? 'Search results' : section.label);
       }
     } else if (key === K.YELLOW) {
       toggleFavorite(Browser.chList.current());
@@ -1048,9 +1061,12 @@
           '<div class="item focusable" data-action="accounts">Manage accounts<span class="value">' + providers.length + ' saved</span></div>' +
           '<div class="item focusable" data-action="add">＋ Add account</div>' +
         '</div>' +
+        '<div class="group"><h3>MOVIES & SERIES</h3><div class="item focusable" data-action="refreshlib">Reload movies & series</div></div>' +
         '<div class="group"><h3>ABOUT</h3><div class="item">Version<span class="value">Veylo TV ' + VERSION + '</span></div></div>' +
       '</div><div>' +
         '<div class="group"><h3>PLAYBACK</h3>' +
+          '<div class="item focusable" data-action="autostart">Start with the last channel<span class="value">' +
+            (Store.autostart() ? 'On' : 'Off') + '</span></div>' +
           '<div class="item focusable" data-action="engine">Player<span class="value">' +
             (Player.engineEnabled() ? 'Veylo engine (like iPhone)' : 'Samsung player') + '</span></div>' +
           '<div class="item focusable" data-action="format">Live stream format<span class="value">' +
@@ -1084,6 +1100,12 @@
         showLogin(null, null, { adding: true });
       } else if (action === 'accounts') {
         showAccounts();
+      } else if (action === 'autostart') {
+        Store.setAutostart(!Store.autostart());
+        showSettings();
+      } else if (action === 'refreshlib') {
+        if (global.VeyloLibrary) global.VeyloLibrary.clearCache();
+        toast('Movies & series will reload');
       } else if (action === 'engine') {
         Player.setEngineEnabled(!Player.engineEnabled());
         toast(Player.engineEnabled() ? 'Veylo engine on — Samsung player is the backup' : 'Samsung player only');
@@ -1123,7 +1145,10 @@
     tune: function (index, immediate) {
       var count = this.lineup.length;
       if (!count) return;
-      this.index = (index + count) % count;
+      var next = (index + count) % count;
+      if (this.lineup[this.index] && next !== this.index && this.started) this.previous = this.lineup[this.index];
+      this.started = true;
+      this.index = next;
       var channel = this.lineup[this.index];
       this.paused = false;
       Player.stop();   // frees the provider connection right away
@@ -1135,6 +1160,7 @@
       var start = function () {
         if (self.lineup[self.index] !== channel || App.screen !== 'player') return;
         Store.addRecent(channel.key);
+        Store.setLastChannel(channel.key);
         Player.play(channel.url, channel.altURL, { key: Store.scope + '|' + channel.key, uhd: channel.quality === '4K' });
         self.loadEPG();
       };
@@ -1260,11 +1286,56 @@
     tick: function () {
       var c = document.getElementById('player-clock');
       if (c) c.textContent = clock(Date.now());
+    },
+
+    /** Channel list over the video (OK): pick another channel without leaving the player. */
+    openPanel: function () {
+      var box = document.getElementById('chpanel');
+      if (!box) return;
+      box.classList.remove('hidden');
+      this.panelOpen = true;
+      var self = this;
+      if (!this.panel) {
+        this.panel = new VList(document.getElementById('chp-list'), 96, function (channel, i, focused) {
+          return '<div class="chp-row' + (focused ? ' focused' : '') + (i === self.index ? ' playing' : '') + '">' +
+            '<div class="num">' + (i + 1) + '</div>' + logoHTML(channel) +
+            '<div class="info"><div class="title">' + esc(channel.title) + '</div></div>' +
+            (channel.quality ? '<span class="badge">' + channel.quality + '</span>' : '') + '</div>';
+        }, 9);
+      }
+      this.panel.focused = true;
+      this.panel.setItems(this.lineup, this.index);
+      var channel = this.lineup[this.index];
+      document.getElementById('chp-head').textContent = this.title || (channel ? API.title(channel.category) : '');
+      document.getElementById('player-overlay').classList.add('hidden');
+    },
+
+    closePanel: function () {
+      var box = document.getElementById('chpanel');
+      if (box) box.classList.add('hidden');
+      this.panelOpen = false;
+    },
+
+    goPrevious: function () {
+      if (!this.previous) { toast('No previous channel yet'); return; }
+      var at = this.lineup.indexOf(this.previous);
+      if (at < 0) {
+        // The previous channel was in another list: switch the lineup to its category.
+        var prev = this.previous;
+        var cat = (App.session.categories || []).filter(function (c) { return c.channels.indexOf(prev) >= 0; })[0];
+        this.lineup = cat ? cat.channels.slice() : App.session.channels.slice();
+        this.title = cat ? API.title(cat.name) : 'All Channels';
+        at = this.lineup.indexOf(prev);
+        this.panel = null;
+      }
+      if (at < 0) { toast('No previous channel yet'); return; }
+      this.tune(at, true);
     }
   };
 
-  function showPlayer(lineup, index) {
+  function showPlayer(lineup, index, title) {
     PlayerScreen.lineup = lineup.slice();
+    PlayerScreen.title = title || '';
     var html =
       '<div class="player">' +
         '<div id="player-overlay">' +
@@ -1273,15 +1344,24 @@
           '<div class="panel" id="player-panel"></div>' +
           '<div class="hints">' +
             '<span><span class="key">▲▼</span>Channel</span>' +
-            '<span><span class="key">0-9</span>Number</span>' +
+            '<span><span class="key">OK</span>Channel list</span>' +
+            '<span><span class="key">◀▶</span>Info</span>' +
+            '<span><span class="key">PRE-CH</span>Previous</span>' +
             '<span><span class="key yellow">&nbsp;</span>Favorite</span>' +
             '<span><span class="key">⏯</span>Pause</span>' +
-            '<span><span class="key">BACK</span>Channel list</span>' +
+            '<span><span class="key">BACK</span>Back</span>' +
           '</div>' +
         '</div>' +
         '<div class="status" id="player-status"></div>' +
+        '<div class="chpanel hidden" id="chpanel"><div class="chp-head" id="chp-head"></div>' +
+          '<div class="vlist" id="chp-list"><div class="vlist-inner"></div></div>' +
+          '<div class="chp-hint">OK Watch · BACK Close</div></div>' +
       '</div>';
     setScreen('player', html, playerKey);
+    PlayerScreen.panel = null;
+    PlayerScreen.panelOpen = false;
+    PlayerScreen.started = false;
+    PlayerScreen.previous = PlayerScreen.previous || null;
     Player.onState = function (state, info) { PlayerScreen.setState(state, info); };
     PlayerScreen.tick();
     clearInterval(PlayerScreen.clockTimer);
@@ -1307,16 +1387,32 @@
   }
 
   function playerKey(key) {
+    if (PlayerScreen.panelOpen) {
+      var panel = PlayerScreen.panel;
+      if (key === K.UP || key === K.DOWN) { panel.move(key === K.UP ? -1 : 1); return; }
+      if (key === K.CH_UP || key === K.CH_DOWN) { panel.move(key === K.CH_UP ? -9 : 9); return; }
+      if (key === K.ENTER) {
+        PlayerScreen.closePanel();
+        if (panel.index !== PlayerScreen.index) PlayerScreen.tune(panel.index, true);
+        return;
+      }
+      if (key === K.BACK || key === K.ESC || key === K.LEFT || key === K.RIGHT) { PlayerScreen.closePanel(); return; }
+      return false;
+    }
     if (key >= 48 && key <= 57) { numberEntry(key - 48); PlayerScreen.showOverlay(); return; }
+    if (key === K.PRECH || key === K.BLUE) { PlayerScreen.goPrevious(); return; }
     switch (key) {
       case K.UP: case K.CH_UP:
         PlayerScreen.tune(PlayerScreen.index - 1); return;
       case K.DOWN: case K.CH_DOWN:
         PlayerScreen.tune(PlayerScreen.index + 1); return;
-      case K.ENTER: case K.INFO: case K.LEFT: case K.RIGHT:
-        if ((PlayerScreen.state === 'error' || PlayerScreen.state === 'retry') && key === K.ENTER) { PlayerScreen.tune(PlayerScreen.index, true); return; }
+      case K.ENTER:
+        if (PlayerScreen.state === 'error' || PlayerScreen.state === 'retry') { PlayerScreen.tune(PlayerScreen.index, true); return; }
+        PlayerScreen.openPanel();
+        return;
+      case K.INFO: case K.LEFT: case K.RIGHT:
         var overlay = document.getElementById('player-overlay');
-        if (overlay && !overlay.classList.contains('hidden') && key === K.ENTER) overlay.classList.add('hidden');
+        if (overlay && !overlay.classList.contains('hidden') && key === K.INFO) overlay.classList.add('hidden');
         else PlayerScreen.showOverlay();
         return;
       case K.PLAY_PAUSE: case K.PLAY: case K.PAUSE:
@@ -1342,7 +1438,7 @@
     registerKeys();
     if (global.VeyloEngine && global.VeyloEngine.cleanupTemp) global.VeyloEngine.cleanupTemp();
     var active = Store.active();
-    if (active) connect(active, true, null, 3);
+    if (active) connect(active, true, null, 3, true);
     else showLogin();
   }
 

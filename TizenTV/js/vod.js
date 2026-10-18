@@ -30,16 +30,78 @@
       '</div>';
   }
 
-  // ---------- Library data (loaded once per session and kind) ----------
+  // ---------- Library data: saved on the TV (IndexedDB), refreshed in the background ----------
+  var DB_NAME = 'veylo', DB_STORE = 'library';
+  var FRESH = 12 * 3600 * 1000;
+  var dbPromise = null;
+
+  function db() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise(function (resolve, reject) {
+      if (!global.indexedDB) { reject(new Error('no IndexedDB')); return; }
+      var req = global.indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = function () { req.result.createObjectStore(DB_STORE); };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { reject(req.error); };
+    });
+    dbPromise.catch(function () { dbPromise = null; });
+    return dbPromise;
+  }
+
+  function cacheGet(key) {
+    return db().then(function (d) {
+      return new Promise(function (resolve) {
+        try {
+          var req = d.transaction(DB_STORE, 'readonly').objectStore(DB_STORE).get(key);
+          req.onsuccess = function () { resolve(req.result || null); };
+          req.onerror = function () { resolve(null); };
+        } catch (e) { resolve(null); }
+      });
+    }).catch(function () { return null; });
+  }
+
+  function cachePut(key, value) {
+    return db().then(function (d) {
+      try { d.transaction(DB_STORE, 'readwrite').objectStore(DB_STORE).put(value, key); } catch (e) { /* storage full */ }
+    }).catch(function () {});
+  }
+
+  function cacheClear() {
+    return db().then(function (d) {
+      try { d.transaction(DB_STORE, 'readwrite').objectStore(DB_STORE).clear(); } catch (e) {}
+    }).catch(function () {});
+  }
+
+  function prepared(lib) {
+    lib.byID = {};
+    lib.items.forEach(function (it) { lib.byID[it.id] = it; });
+    return lib;
+  }
+
+  function download(kind, key) {
+    return client().loadLibrary(kind).then(function (lib) {
+      cachePut(key, { t: Date.now(), items: lib.items, categories: lib.categories });
+      return prepared(lib);
+    });
+  }
+
   function library(kind) {
     var session = UI.App.session;
     session.library = session.library || {};
     if (!session.library[kind]) {
-      session.library[kind] = client().loadLibrary(kind).then(function (lib) {
-        lib.byID = {};
-        lib.items.forEach(function (it) { lib.byID[it.id] = it; });
-        return lib;
-      }, function (error) {
+      var key = Store.scope + '|' + kind;
+      session.library[kind] = cacheGet(key).then(function (saved) {
+        if (saved && saved.items && saved.items.length) {
+          // Saved copy opens instantly; an old one is refreshed quietly for next time.
+          if (Date.now() - saved.t > FRESH) {
+            download(kind, key).then(function (fresh) {
+              if (UI.App.session === session) session.library[kind] = Promise.resolve(fresh);
+            }).catch(function () {});
+          }
+          return prepared({ items: saved.items, categories: saved.categories });
+        }
+        return download(kind, key);
+      }).catch(function (error) {
         delete session.library[kind];
         throw error;
       });
@@ -534,13 +596,18 @@
             '<div class="track"><div class="fill" id="vod-fill"></div><div class="knob" id="vod-knob"></div></div></div>' +
           '<div class="hints">' +
             '<span><span class="key">◀ ▶</span>−10 s / +10 s</span>' +
+            '<span><span class="key yellow">&nbsp;</span>Audio & subtitles</span>' +
             '<span><span class="key">⏯</span>Pause</span>' +
             (media.next ? '<span><span class="key">CH+</span>Next episode</span>' : '') +
             '<span><span class="key">BACK</span>Close</span>' +
           '</div>' +
         '</div>' +
         '<div class="status" id="vod-status"></div>' +
+        '<div class="vod-subtitle" id="vod-subtitle"></div>' +
+        '<div class="tracks hidden" id="tracks"></div>' +
       '</div>';
+    V.tracks = { audio: [], text: [], audioIndex: -1, textIndex: -1 };
+    V.tracksOpen = false;
     UI.setScreen('vodplayer', html, vodKey);
     UI.App.onVisibility = function (hidden) {
       if (UI.App.screen !== 'vodplayer') return;
@@ -622,6 +689,7 @@
         oncurrentplaytime: function (ms) { if (live()) { V.position = ms / 1000; if (V.seekTarget === null) drawBar(); } },
         onstreamcompleted: function () { if (live()) finished(); },
         onerror: function (type) { if (live()) fail(type || 'PLAYER_ERROR'); },
+        onsubtitlechange: function (duration, text) { if (live()) subtitle(text, duration); },
         onevent: function () {}
       });
       if (agent) { try { av.setStreamingProperty('USER_AGENT', agent); } catch (e) {} }
@@ -667,6 +735,7 @@
 
   function started() {
     clearTimeout(V.tryTimer);
+    loadTracks();
     V.state = 'playing';
     status('');
     drawBar();
@@ -784,7 +853,96 @@
     showOverlay(V.paused);
   }
 
+  // ---------- Audio & subtitle tracks (Samsung player) ----------
+  var LANGS = { eng: 'English', en: 'English', hin: 'Hindi', hi: 'Hindi', pan: 'Punjabi', pa: 'Punjabi', urd: 'Urdu', ur: 'Urdu',
+    tam: 'Tamil', ta: 'Tamil', tel: 'Telugu', te: 'Telugu', mal: 'Malayalam', ml: 'Malayalam', ben: 'Bengali', bn: 'Bengali',
+    mar: 'Marathi', guj: 'Gujarati', kan: 'Kannada', ara: 'Arabic', ar: 'Arabic', spa: 'Spanish', es: 'Spanish', fre: 'French',
+    fra: 'French', fr: 'French', ger: 'German', deu: 'German', de: 'German', ita: 'Italian', it: 'Italian', tur: 'Turkish',
+    por: 'Portuguese', rus: 'Russian', chi: 'Chinese', zho: 'Chinese', jpn: 'Japanese', kor: 'Korean', und: 'Unknown' };
+
+  function trackLabel(extra, n, type) {
+    var lang = '';
+    try {
+      var info = typeof extra === 'string' ? JSON.parse(extra) : (extra || {});
+      lang = String(info.language || info.track_lang || info.lang || '').toLowerCase();
+    } catch (e) {}
+    return (LANGS[lang] || (lang ? lang.toUpperCase() : (type === 'AUDIO' ? 'Audio ' : 'Subtitle ') + n));
+  }
+
+  function loadTracks() {
+    if (!hasAVPlay()) return;
+    var av = global.webapis.avplay;
+    var t = { audio: [], text: [], audioIndex: -1, textIndex: -1 };
+    try {
+      (av.getTotalTrackInfo() || []).forEach(function (track) {
+        if (track.type === 'AUDIO') t.audio.push({ index: track.index, label: trackLabel(track.extra_info, t.audio.length + 1, 'AUDIO') });
+        if (track.type === 'TEXT') t.text.push({ index: track.index, label: trackLabel(track.extra_info, t.text.length + 1, 'TEXT') });
+      });
+      (av.getCurrentStreamInfo() || []).forEach(function (s) { if (s.type === 'AUDIO') t.audioIndex = Number(s.index); });
+      av.setSilentSubtitle(true);
+    } catch (e) { /* older firmware */ }
+    V.tracks = t;
+  }
+
+  function subtitle(text, duration) {
+    var box = document.getElementById('vod-subtitle');
+    if (!box || V.tracks.textIndex < 0) return;
+    box.innerHTML = esc(String(text || '').replace(/<[^>]+>/g, '')).replace(/\n/g, '<br>');
+    clearTimeout(V.subTimer);
+    V.subTimer = setTimeout(function () { box.innerHTML = ''; }, Number(duration) || 3000);
+  }
+
+  function openTracks() {
+    var t = V.tracks;
+    var box = document.getElementById('tracks');
+    if (!box) return;
+    if (!t.audio.length && !t.text.length) { toast('No other audio or subtitles in this title'); return; }
+    var html = '<h3>AUDIO</h3>' + (t.audio.length ? t.audio.map(function (a) {
+      var on = a.index === t.audioIndex || (t.audioIndex < 0 && a === t.audio[0]);
+      return '<div class="item focusable' + (on ? ' on' : '') + '" data-type="AUDIO" data-index="' + a.index + '">' + esc(a.label) + (on ? ' ✓' : '') + '</div>';
+    }).join('') : '<div class="item">Only one</div>') +
+      '<h3>SUBTITLES</h3><div class="item focusable' + (t.textIndex < 0 ? ' on' : '') + '" data-type="TEXT" data-index="-1">Off' + (t.textIndex < 0 ? ' ✓' : '') + '</div>' +
+      t.text.map(function (x) {
+        var on = x.index === t.textIndex;
+        return '<div class="item focusable' + (on ? ' on' : '') + '" data-type="TEXT" data-index="' + x.index + '">' + esc(x.label) + (on ? ' ✓' : '') + '</div>';
+      }).join('');
+    box.innerHTML = html;
+    box.classList.remove('hidden');
+    V.tracksOpen = true;
+    V.trackFocus = new UI.FormFocus('#tracks .focusable');
+    showOverlay(true);
+  }
+
+  function closeTracks() {
+    var box = document.getElementById('tracks');
+    if (box) box.classList.add('hidden');
+    V.tracksOpen = false;
+    showOverlay();
+  }
+
+  function chooseTrack(node) {
+    var type = node.getAttribute('data-type');
+    var index = Number(node.getAttribute('data-index'));
+    var av = global.webapis.avplay;
+    try {
+      if (type === 'AUDIO') { av.setSelectTrack('AUDIO', index); V.tracks.audioIndex = index; }
+      else if (index < 0) { av.setSilentSubtitle(true); V.tracks.textIndex = -1; subtitle('', 1); }
+      else { av.setSilentSubtitle(false); av.setSelectTrack('TEXT', index); V.tracks.textIndex = index; }
+      toast(type === 'AUDIO' ? 'Audio: ' + node.textContent.replace(' ✓', '') : 'Subtitles: ' + node.textContent.replace(' ✓', ''));
+    } catch (e) {
+      toast('Couldn’t switch this track');
+    }
+    closeTracks();
+  }
+
   function vodKey(key) {
+    if (V.tracksOpen) {
+      if (key === K.UP || key === K.DOWN || key === K.LEFT || key === K.RIGHT) { V.trackFocus.move(key); return; }
+      if (key === K.ENTER) { var n = V.trackFocus.current(); if (n) chooseTrack(n); return; }
+      if (key === K.BACK || key === K.ESC || key === K.YELLOW) { closeTracks(); return; }
+      return false;
+    }
+    if (key === K.YELLOW || key === K.GREEN) { openTracks(); return; }
     switch (key) {
       case K.LEFT: seekBy(-1); return;
       case K.RIGHT: seekBy(1); return;
@@ -803,5 +961,11 @@
     }
   }
 
-  global.VeyloLibrary = { show: show };
+  global.VeyloLibrary = {
+    show: show,
+    clearCache: function () {
+      cacheClear();
+      if (UI.App.session) UI.App.session.library = {};
+    }
+  };
 })(window);

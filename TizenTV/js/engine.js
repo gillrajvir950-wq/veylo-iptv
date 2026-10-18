@@ -57,6 +57,7 @@
       var reader = response.body.getReader();
       self.reader = reader;
       function pump() {
+        if (self.stopped) return null;
         return reader.read().then(function (result) {
           if (self.stopped) return;
           if (result.done) { onError(errorWith('STREAM_ENDED')); return; }
@@ -73,7 +74,12 @@
   WebSource.prototype.stop = function () {
     this.stopped = true;
     try { if (this.controller) this.controller.abort(); } catch (e) {}
-    try { if (this.reader) this.reader.cancel(); } catch (e) {}
+    try {
+      if (this.reader) {
+        var done = this.reader.cancel();
+        if (done && done.catch) done.catch(function () {});
+      }
+    } catch (e) {}
   };
 
   /** Samsung's native downloader (VLC identity, no browser origin) into a temp file that is read
