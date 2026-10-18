@@ -25,12 +25,28 @@
   /** Reconnect pauses after a stream that was playing drops. */
   var DROP_DELAYS = [3, 6, 10];
   var MEMORY_KEY = 'veylo.tv.streamIdentity';
+  /** What worked per channel ({key: {agent, format}}), newest last, capped. */
+  var CHANNEL_KEY = 'veylo.tv.channelTry';
+  var CHANNEL_LIMIT = 400;
 
   function remembered() {
     try { return JSON.parse(global.localStorage.getItem(MEMORY_KEY) || 'null'); } catch (e) { return null; }
   }
-  function remember(value) {
+  function remember(value, channelKey) {
     try { global.localStorage.setItem(MEMORY_KEY, JSON.stringify(value)); } catch (e) { /* storage blocked */ }
+    if (!channelKey) return;
+    try {
+      var map = JSON.parse(global.localStorage.getItem(CHANNEL_KEY) || '{}');
+      delete map[channelKey];
+      map[channelKey] = value;
+      var keys = Object.keys(map);
+      while (keys.length > CHANNEL_LIMIT) delete map[keys.shift()];
+      global.localStorage.setItem(CHANNEL_KEY, JSON.stringify(map));
+    } catch (e) { /* storage blocked */ }
+  }
+  function channelMemory(channelKey) {
+    if (!channelKey) return null;
+    try { return JSON.parse(global.localStorage.getItem(CHANNEL_KEY) || '{}')[channelKey] || null; } catch (e) { return null; }
   }
   function agentByID(id) {
     for (var i = 0; i < AGENTS.length; i++) if (AGENTS[i].id === id) return AGENTS[i];
@@ -63,14 +79,18 @@
 
   /** Ordered tries: what worked last time first, then the Veylo engine, then Samsung's player
    *  with every identity × format. */
-  function buildPlan(url, altURL) {
+  function buildPlan(url, altURL, options) {
+    options = options || {};
     var urls = [url];
     if (altURL) urls.push(altURL);
-    var memory = remembered();
+    // This channel's own winner beats the last winner on any channel.
+    var own = channelMemory(options.key);
+    var memory = own || remembered();
     var agents = AGENTS.slice();
     var plan = [];
     var engine = engineTries(url, altURL, memory);
-    var avplayWon = memory && agentByID(memory.agent);
+    // 4K channels are usually HEVC, which the engine can't play: Samsung's player first.
+    var avplayWon = (memory && agentByID(memory.agent)) || (options.uhd && !own);
     if (!avplayWon) plan = plan.concat(engine);
     if (memory) {
       var known = agentByID(memory.agent);
@@ -100,9 +120,12 @@
     /** Last error name (shown small on the error screen to help diagnose). */
     lastError: '',
 
-    play: function (url, altURL) {
+    /** options: {key: channel key (per-channel memory), uhd: 4K channel}. */
+    play: function (url, altURL, options) {
       Player.stop();
-      Player.current = { plan: buildPlan(url, altURL), step: 0, log: [], drops: 0 };
+      options = options || {};
+      Player.current = { plan: buildPlan(url, altURL, options), step: 0, log: [], drops: 0,
+        key: options.key || '', began: Date.now() };
       Player.lastError = '';
       Player.open();
     },
@@ -151,7 +174,7 @@
       if (!current.playing) {
         current.playing = true;
         var tryNow = current.plan[current.step];
-        remember({ agent: tryNow.agent.id, format: tryNow.format });
+        remember({ agent: tryNow.agent.id, format: tryNow.format }, current.key);
         current.log.push({ format: tryNow.format, agent: tryNow.agent.label, result: 'OK', seconds: Math.round((Date.now() - current.since) / 1000) });
       }
       Player.onState('playing');
@@ -255,7 +278,7 @@
 
     togglePause: function () {
       if (Player.engine) {
-        var v = document.getElementById('html5-video');
+        var v = Player.engine.video;
         if (!v) return false;
         if (v.paused) { v.play(); return false; }
         v.pause();

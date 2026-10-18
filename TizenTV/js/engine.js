@@ -220,6 +220,8 @@
   Session.prototype.start = function () {
     var self = this;
     var video = this.video;
+    // Each try gets a brand-new <video>: resetting a shared one (src removed + load()) fires a
+    // late MEDIA_ERR_SRC_NOT_SUPPORTED (code 4) that used to kill the next try at 0 s.
     this.mediaSource = new global.MediaSource();
     this.objectURL = global.URL.createObjectURL(this.mediaSource);
     video.style.display = 'block';
@@ -397,9 +399,9 @@
     video.onwaiting = null;
     video.onerror = null;
     try { video.pause(); } catch (e) {}
-    try { video.removeAttribute('src'); video.load(); } catch (e) {}
-    try { global.URL.revokeObjectURL(this.objectURL); } catch (e) {}
-    video.style.display = 'none';
+    if (video.parentNode) video.parentNode.removeChild(video);
+    var url = this.objectURL;
+    setTimeout(function () { try { global.URL.revokeObjectURL(url); } catch (e) {} }, 1000);
   };
 
   global.VeyloEngine = {
@@ -407,11 +409,15 @@
     hasNative: hasNative,
     /** mode: 'web' | 'native'. callbacks: onPlaying, onBuffering, onError(name). */
     start: function (url, mode, callbacks) {
-      var video = document.getElementById('html5-video');
-      if (!video || !supported()) {
+      var anchor = document.getElementById('app');
+      if (!anchor || !supported()) {
         setTimeout(function () { callbacks.onError('ENGINE_UNAVAILABLE'); }, 0);
         return null;
       }
+      var video = document.createElement('video');
+      video.className = 'engine-video';
+      video.setAttribute('playsinline', '');
+      anchor.parentNode.insertBefore(video, anchor);
       return new Session(video, url, mode, callbacks);
     }
   };

@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.1.9';
+  var VERSION = '0.1.10';
 
   // ---------- Keys ----------
   var K = {
@@ -936,7 +936,7 @@
       var start = function () {
         if (self.lineup[self.index] !== channel || App.screen !== 'player') return;
         Store.addRecent(channel.key);
-        Player.play(channel.url, channel.altURL);
+        Player.play(channel.url, channel.altURL, { key: channel.key, uhd: channel.quality === '4K' });
         self.loadEPG();
       };
       if (immediate) start(); else this.tuneTimer = setTimeout(start, 700);
@@ -991,7 +991,8 @@
           var a = Player.attempt();
           if (!node || !c || !c.since || !a) return;
           node.textContent = 'Try ' + (c.step + 1) + '/' + c.plan.length + ' · ' + a.format + ' · ' + a.agent.label +
-            ' · ' + Math.round((Date.now() - c.since) / 1000) + ' s';
+            ' · ' + Math.round((Date.now() - c.since) / 1000) + ' s' +
+            (c.step ? '  (total ' + Math.round((Date.now() - c.began) / 1000) + ' s)' : '');
         };
         wait();
         this.loadTimer = setInterval(wait, 1000);
@@ -1006,7 +1007,7 @@
         var c = Player.current;
         var code = '';
         if (c && c.log && c.log.length) {
-          code = '<div class="attempts">' + c.log.slice(-8).map(function (l) {
+          code = '<div class="attempts">' + c.log.slice(-10).map(function (l) {
             return esc(l.format + ' · ' + l.agent + ' → ' + l.result + ' (' + l.seconds + ' s)');
           }).join('<br>') + (c.uaError ? '<br>Identity not applied: ' + esc(c.uaError) : '') + '</div>';
         } else if (Player.lastError) {
