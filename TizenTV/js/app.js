@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.2.2';
+  var VERSION = '0.2.3';
 
   // ---------- Keys ----------
   var K = {
@@ -146,6 +146,104 @@
     var node = document.getElementById('nav-clock');
     if (node) node.textContent = clock(Date.now());
   }, 10000);
+
+  // ---------- Parental lock ----------
+  var ADULT = /\b(adult|adults|xxx|18\s*\+|\+\s*18|porn|erotic|for adults)\b/i;
+
+  /** kind: 'live' | 'movie' | 'series'. Locked when a PIN exists and the category is chosen,
+   *  or looks adult and automatic adult locking is on. */
+  function isLockedCat(kind, name) {
+    if (!Store.pin()) return false;
+    var id = kind + ':' + name;
+    var list = Store.lockedCats();
+    if (list.indexOf(id) >= 0) return true;
+    return Store.autoAdult() && ADULT.test(name) && list.indexOf('!' + id) < 0;
+  }
+
+  /** Hides locked live categories (and their channels) until the PIN is entered this session. */
+  function applyLock() {
+    var s = App.session;
+    if (!s) return;
+    if (!s.allChannels) { s.allChannels = s.channels; s.allCategories = s.categories; }
+    s.hidden = {};
+    s.lockedCount = 0;
+    if (!Store.pin() || App.unlocked) {
+      s.channels = s.allChannels;
+      s.categories = s.allCategories;
+    } else {
+      var locked = s.allCategories.filter(function (c) { return isLockedCat('live', c.name); });
+      locked.forEach(function (c) { c.channels.forEach(function (ch) { s.hidden[ch.key] = true; }); });
+      s.lockedCount = locked.length;
+      s.categories = s.allCategories.filter(function (c) { return locked.indexOf(c) < 0; });
+      s.channels = s.lockedCount ? s.allChannels.filter(function (ch) { return !s.hidden[ch.key]; }) : s.allChannels;
+    }
+    s.countries = buildCountries(s.categories);
+  }
+
+  function isHidden(channel) {
+    var s = App.session;
+    return !!(s && s.hidden && s.hidden[channel.key]);
+  }
+
+  /** PIN pad over the current screen: digits from the remote, or ▲▼ to change and ◀▶ to move. */
+  function askPIN(title, done, cancel) {
+    var digits = [-1, -1, -1, -1];
+    var at = 0;
+    var saved = App.keyHandler;
+    var box = document.createElement('div');
+    box.className = 'pin-modal';
+    document.body.appendChild(box);
+    function draw(error) {
+      box.innerHTML = '<div class="pin-card"><h2>' + esc(title) + '</h2><div class="pin-cells">' +
+        digits.map(function (d, i) {
+          return '<div class="pin-cell' + (i === at ? ' focused' : '') + '">' + (d < 0 ? '' : (i === at ? d : '•')) + '</div>';
+        }).join('') + '</div>' +
+        (error ? '<div class="pin-error">' + esc(error) + '</div>' : '') +
+        '<div class="pin-hint">0–9 or ▲▼ to choose · ◀▶ move · OK confirm · BACK cancel</div></div>';
+    }
+    function close() {
+      if (box.parentNode) box.parentNode.removeChild(box);
+      App.keyHandler = saved;
+    }
+    function finish() {
+      if (digits.some(function (d) { return d < 0; })) { draw('Enter all four digits'); return; }
+      var pin = digits.join('');
+      var result = done(pin);
+      if (result === false) { digits = [-1, -1, -1, -1]; at = 0; draw('Wrong PIN'); return; }
+      close();
+    }
+    App.keyHandler = function (key) {
+      if (key >= 48 && key <= 57) {
+        digits[at] = key - 48;
+        if (at < 3) at += 1; else { draw(); finish(); return; }
+        draw();
+        return;
+      }
+      if (key === K.UP || key === K.DOWN) {
+        var d = digits[at] < 0 ? 0 : digits[at];
+        digits[at] = (d + (key === K.UP ? 1 : 9)) % 10;
+        draw();
+        return;
+      }
+      if (key === K.LEFT) { at = Math.max(0, at - 1); draw(); return; }
+      if (key === K.RIGHT) { if (digits[at] < 0) digits[at] = 0; at = Math.min(3, at + 1); draw(); return; }
+      if (key === K.ENTER) { finish(); return; }
+      if (key === K.BACK || key === K.ESC) { close(); if (cancel) cancel(); return; }
+      return false;
+    };
+    draw();
+  }
+
+  /** Asks for the PIN (if any) and unlocks locked content for this session. */
+  function unlock(then) {
+    if (!Store.pin() || App.unlocked) { then(); return; }
+    askPIN('Enter your PIN', function (pin) {
+      if (pin !== Store.pin()) return false;
+      App.unlocked = true;
+      applyLock();
+      setTimeout(then, 0);
+    });
+  }
 
   // ---------- Countries (from the provider's own category names) ----------
   var COUNTRY_NAMES = {
@@ -325,7 +423,44 @@
     lastBack: 0
   };
 
+  // ---------- Live preview (small muted picture in the channel list; Settings › Live preview) ----------
+  var Preview = { session: null, timer: null, key: '' };
+
+  function stopPreview() {
+    clearTimeout(Preview.timer);
+    if (Preview.session) { try { Preview.session.stop(); } catch (e) {} }
+    Preview.session = null;
+    Preview.key = '';
+  }
+
+  function schedulePreviewVideo(channel) {
+    stopPreview();
+    if (!channel || !Store.preview() || !global.VeyloEngine || !Player.engineEnabled()) return;
+    var url = /\.m3u8(\?|$)/i.test(channel.url) ? channel.altURL : channel.url;
+    if (!url || /\.m3u8(\?|$)/i.test(url)) return;
+    Preview.timer = setTimeout(function () {
+      if (App.screen !== 'browser' || Browser.chList.current() !== channel) return;
+      var box = document.querySelector('#preview .logo');
+      if (!box) return;
+      var r = box.getBoundingClientRect();
+      var start = function (mode) {
+        Preview.key = channel.key;
+        Preview.session = global.VeyloEngine.start(url, mode, {
+          onPlaying: function () {},
+          onBuffering: function () {},
+          onError: function () {
+            if (Preview.key !== channel.key) return;
+            Preview.session = null;
+            if (mode === 'web' && global.VeyloEngine.hasNative()) start('native');
+          }
+        }, { muted: true, rect: { left: r.left, top: r.top, width: r.width, height: r.height } });
+      };
+      start('web');
+    }, 1200);
+  }
+
   function setScreen(name, html, handler) {
+    stopPreview();
     if (Browser.pendingSection) { clearTimeout(Browser.pendingSection); Browser.pendingSection = null; }
     clearTimeout(Browser.previewTimer);
     App.screen = name;
@@ -436,7 +571,8 @@
             ? field('server', 'Server URL (http://host:port)', form.server) +
               field('username', 'Username', form.username) +
               field('password', 'Password', form.password, 'password')
-            : field('playlistURL', 'Playlist URL', form.playlistURL)) +
+            : field('playlistURL', 'Playlist URL', form.playlistURL) +
+              field('epgURL', 'TV guide link (optional, XMLTV)', form.epgURL || '')) +
           field('name', 'Account name (optional, e.g. "Home" or "Sports")', form.name || '') +
           '<div class="check focusable' + (form.save ? ' on' : '') + '" data-action="save"><div class="box">' + (form.save ? '✓' : '') + '</div><span>Save this provider on this TV</span></div>' +
           '<div class="button focusable" data-action="connect">Connect</div>' +
@@ -492,7 +628,7 @@
         readForm();
         var profile = form.kind === 'xtream'
           ? { kind: 'xtream', server: form.server, username: form.username, password: form.password }
-          : { kind: 'm3u', playlistURL: form.playlistURL };
+          : { kind: 'm3u', playlistURL: form.playlistURL, epgURL: form.epgURL || '' };
         if (form.name) profile.name = form.name;
         if (form.kind === 'xtream' && (!/^https?:\/\//i.test(form.server) || !form.username || !form.password)) {
           showLogin('Enter the server URL (starting with http://), username and password.', form);
@@ -543,12 +679,15 @@
         profile: saved,
         channels: result.channels,
         categories: result.categories,
-        countries: buildCountries(result.categories),
         client: result.client || null,
         account: result.account || null
       };
       // Favorites, recents, My List and resume points are kept per account.
       Store.setScope(saved.id || ('host:' + Store.hostOf(profile.server || profile.playlistURL) + '|' + (profile.username || '')));
+      App.unlocked = false;
+      applyLock();
+      // M3U accounts: TV guide from the playlist's XMLTV link (or the one saved with the account).
+      if (!App.session.client && global.VeyloXMLTV) global.VeyloXMLTV.load(App.session, profile.epgURL || result.guideURL || '', Store.scope);
       App.byKey = {};
       result.channels.forEach(function (c) { App.byKey[c.key] = c; });
       Browser.reset();
@@ -610,8 +749,8 @@
 
   function buildSections() {
     var s = App.session;
-    var favs = Store.favorites().map(function (k) { return App.byKey[k]; }).filter(Boolean);
-    var recents = Store.recents().map(function (k) { return App.byKey[k]; }).filter(Boolean);
+    var favs = Store.favorites().map(function (k) { return App.byKey[k]; }).filter(function (c) { return c && !isHidden(c); });
+    var recents = Store.recents().map(function (k) { return App.byKey[k]; }).filter(function (c) { return c && !isHidden(c); });
     var sections = [
       { id: 'search', label: Browser.query ? 'Search: ' + Browser.query : 'Search', glyph: '⌕', channels: searchResults() },
       { id: 'all', label: 'All Channels', glyph: '▤', channels: s.channels },
@@ -628,6 +767,9 @@
         inside.push({ id: 'c:' + c.name, label: API.title(c.name), glyph: '', channels: c.channels });
       });
       return inside;
+    }
+    if (s.lockedCount) {
+      sections.push({ id: 'locked', label: 'Locked (' + s.lockedCount + ')', glyph: '✱', type: 'locked', channels: [] });
     }
     if (s.countries) {
       s.countries.forEach(function (country) {
@@ -688,7 +830,7 @@
     setScreen('browser', html, browserKey);
 
     Browser.catList = new VList(document.getElementById('cats'), 74, function (section, i, focused, y) {
-      var count = section.id === 'search' || section.type === 'back' ? '' : section.channels.length;
+      var count = section.id === 'search' || section.type === 'back' || section.type === 'locked' ? '' : section.channels.length;
       return '<div class="cat' + (i === Browser.sectionIndex ? ' selected' : '') + (focused ? ' focused' : '') +
         (section.type === 'back' ? ' back' : '') + '">' +
         '<span class="glyph' + (section.code ? ' code' : '') + '">' + esc(section.glyph) + '</span>' +
@@ -726,7 +868,7 @@
     var section = Browser.sections[index];
     document.getElementById('section-title').textContent =
       section.id === 'search' ? (Browser.query ? 'Results for “' + Browser.query + '”' : 'Search') : section.label;
-    var sub = section.type === 'back' ? 'Press OK to go back'
+    var sub = section.type === 'back' ? 'Press OK to go back' : section.type === 'locked' ? 'Press OK to unlock'
       : section.id === 'search' && !Browser.query ? 'Press OK to type'
       : section.channels.length.toLocaleString() + ' channels';
     document.getElementById('section-sub').textContent = sub;
@@ -737,7 +879,8 @@
         favorites: 'No favorites yet.<br>Press the <b>yellow</b> button on any channel to add it here.',
         recent: 'Channels you watch will show up here.',
         search: Browser.query ? 'Nothing found.' : 'Press OK, type a channel name and press Done.',
-        back: 'Press OK to see all countries again.'
+        back: 'Press OK to see all countries again.',
+        locked: 'These categories are locked.<br>Press OK and enter your PIN to show them.'
       }[section.id] || 'No channels here.';
       box.innerHTML = '<div class="empty">' + message + '</div>';
     }
@@ -757,6 +900,7 @@
 
   /** Preview (big logo + EPG) only when the highlight rests on a channel. */
   function schedulePreview() {
+    stopPreview();
     clearTimeout(Browser.previewTimer);
     Browser.previewTimer = setTimeout(updatePreview, 160);
   }
@@ -786,12 +930,17 @@
         (acc && acc.expires ? '<div class="cat-name">Subscription until ' + acc.expires.toLocaleDateString() + '</div>' : '');
       return;
     }
+    schedulePreviewVideo(channel);
     box.innerHTML = logoHTML(channel) +
       '<h2>' + esc(channel.title) + '</h2>' +
       '<div class="cat-name">' + esc(API.title(channel.category)) + (channel.quality ? ' · ' + channel.quality : '') + '</div>' +
       '<div class="epg" id="preview-epg"></div>';
     clearTimeout(Browser.epgTimer);
-    if (App.session.client && channel.streamID) {
+    if (!App.session.client && global.VeyloXMLTV && global.VeyloXMLTV.available()) {
+      var guide = global.VeyloXMLTV.lookup(channel);
+      var spot = document.getElementById('preview-epg');
+      if (spot) spot.innerHTML = epgHTML(guide);
+    } else if (App.session.client && channel.streamID) {
       var key = channel.key;
       Browser.epgTimer = setTimeout(function () {
         App.session.client.shortEPG(channel.streamID).then(function (list) {
@@ -870,6 +1019,7 @@
       } else if (key === K.ENTER) {
         if (section.id === 'search') { openSearch(); return; }
         if (section.type === 'back') { leaveCountry(); return; }
+        if (section.type === 'locked') { unlock(function () { Browser.reset(); Browser.focus = 'cats'; showBrowser(); }); return; }
         if (section.type === 'country') { enterCountry(section.country); return; }
         if (Browser.chList.items.length) setBrowserFocus('list');
       } else if (key === K.BACK || key === K.ESC) {
@@ -1065,12 +1215,27 @@
           '<div class="item focusable" data-action="accounts">Manage accounts<span class="value">' + providers.length + ' saved</span></div>' +
           '<div class="item focusable" data-action="add">＋ Add account</div>' +
         '</div>' +
+        (s && !s.client && global.VeyloXMLTV ? (function () {
+          var st = global.VeyloXMLTV.status();
+          var value = st.status === 'ready' ? st.count + ' channels · ' + clock(st.updated)
+            : st.status === 'loading' ? 'Loading…' : st.status === 'none' ? 'No guide link' : esc(st.message || 'Not available');
+          return '<div class="group"><h3>TV GUIDE</h3><div class="item">XMLTV guide<span class="value">' + value + '</span></div></div>';
+        })() : '') +
+        '<div class="group"><h3>PARENTAL LOCK</h3>' +
+          '<div class="item focusable" data-action="pin">PIN<span class="value">' + (Store.pin() ? 'On' : 'Off') + '</span></div>' +
+          (Store.pin() ? '<div class="item focusable" data-action="lockcats">Choose locked categories<span class="value">' +
+            (Store.lockedCats().filter(function (x) { return x.charAt(0) !== '!'; }).length) + ' chosen</span></div>' +
+            '<div class="item focusable" data-action="autoadult">Lock adult categories automatically<span class="value">' +
+            (Store.autoAdult() ? 'On' : 'Off') + '</span></div>' : '') +
+        '</div>' +
         '<div class="group"><h3>MOVIES & SERIES</h3><div class="item focusable" data-action="refreshlib">Reload movies & series</div></div>' +
         '<div class="group"><h3>ABOUT</h3><div class="item">Version<span class="value">Veylo TV ' + VERSION + '</span></div></div>' +
       '</div><div>' +
         '<div class="group"><h3>PLAYBACK</h3>' +
           '<div class="item focusable" data-action="autostart">Start with the last channel<span class="value">' +
             (Store.autostart() ? 'On' : 'Off') + '</span></div>' +
+          '<div class="item focusable" data-action="preview">Live preview in the channel list<span class="value">' +
+            (Store.preview() ? 'On' : 'Off') + '</span></div>' +
           '<div class="item focusable" data-action="engine">Player<span class="value">' +
             (Player.engineEnabled() ? 'Veylo engine (like iPhone)' : 'Samsung player') + '</span></div>' +
           '<div class="item focusable" data-action="format">Live stream format<span class="value">' +
@@ -1104,6 +1269,38 @@
         showLogin(null, null, { adding: true });
       } else if (action === 'accounts') {
         showAccounts();
+      } else if (action === 'pin') {
+        if (!Store.pin()) {
+          askPIN('Choose a 4-digit PIN', function (first) {
+            setTimeout(function () {
+              askPIN('Enter the same PIN again', function (second) {
+                if (second !== first) { toast('The PINs didn’t match'); return; }
+                Store.setPin(first);
+                App.unlocked = false;
+                applyLock();
+                toast('Parental lock on');
+                setTimeout(showSettings, 0);
+              });
+            }, 0);
+          });
+        } else {
+          askPIN('Enter your PIN to turn the lock off', function (pin) {
+            if (pin !== Store.pin()) return false;
+            Store.setPin('');
+            App.unlocked = false;
+            applyLock();
+            toast('Parental lock off');
+            setTimeout(showSettings, 0);
+          });
+        }
+      } else if (action === 'lockcats') {
+        unlock(showLockScreen);
+      } else if (action === 'autoadult') {
+        unlock(function () { Store.setAutoAdult(!Store.autoAdult()); applyLock(); showSettings(); });
+      } else if (action === 'preview') {
+        Store.setPreview(!Store.preview());
+        if (Store.preview()) toast('Preview uses one of your provider connections');
+        showSettings();
       } else if (action === 'autostart') {
         Store.setAutostart(!Store.autostart());
         showSettings();
@@ -1133,6 +1330,59 @@
     // Start on the first setting, not on the menu.
     focus.items.forEach(function (node, i) { if (focus.index === 0 && node.classList.contains('focusable')) focus.index = i; });
     focus.apply();
+  }
+
+  /** Pick which categories the PIN protects (live, and movies/series once loaded). */
+  function showLockScreen() {
+    var s = App.session;
+    var groups = [{ kind: 'live', title: 'LIVE TV', names: s.allCategories.map(function (c) { return c.name; }) }];
+    var libs = s.library || {};
+    var html = '<div class="backdrop"></div><div class="settings lockscreen"><h1>Locked categories</h1>' +
+      '<p class="sub">OK locks or unlocks a category. Locked ones need the PIN once per app start.</p><div class="lock-list" id="lock-list"></div></div>' +
+      '<div class="hints acc-hints"><span><span class="key">OK</span>Lock / unlock</span><span><span class="key">BACK</span>Done</span></div>';
+    setScreen('lockcats', html, function (key) {
+      if (key === K.UP || key === K.DOWN || key === K.LEFT || key === K.RIGHT) { focus.move(key); return; }
+      if (key === K.BACK || key === K.ESC) { App.unlocked = false; applyLock(); showSettings(); return; }
+      if (key !== K.ENTER) return false;
+      var node = focus.current();
+      if (!node) return;
+      var kind = node.getAttribute('data-kind'), name = node.getAttribute('data-name');
+      var id = kind + ':' + name;
+      var on = isLockedCat(kind, name);
+      // Adult categories locked automatically are switched off with a "!" entry.
+      if (on) {
+        if (Store.lockedCats().indexOf(id) >= 0) Store.toggleLockedCat(id); else Store.toggleLockedCat('!' + id);
+      } else {
+        if (Store.lockedCats().indexOf('!' + id) >= 0) Store.toggleLockedCat('!' + id); else Store.toggleLockedCat(id);
+      }
+      var now = isLockedCat(kind, name);
+      node.classList.toggle('on', now);
+      node.querySelector('.value').textContent = now ? 'Locked' : '';
+    });
+    function render(extra) {
+      var list = groups.concat(extra || []);
+      document.getElementById('lock-list').innerHTML = list.map(function (g) {
+        return '<h3>' + g.title + '</h3>' + g.names.map(function (n) {
+          var on = isLockedCat(g.kind, n);
+          return '<div class="item focusable' + (on ? ' on' : '') + '" data-kind="' + g.kind + '" data-name="' + esc(n) + '">' +
+            esc(API.title(n)) + '<span class="value">' + (on ? 'Locked' : '') + '</span></div>';
+        }).join('');
+      }).join('');
+      focus = new FormFocus('#lock-list .focusable');
+    }
+    var focus;
+    render();
+    ['movie', 'series'].forEach(function (kind) {
+      if (!libs[kind]) return;
+      libs[kind].then(function (lib) {
+        if (App.screen !== 'lockcats') return;
+        groups.push({ kind: kind, title: kind === 'movie' ? 'MOVIES' : 'SERIES', names: lib.categories.map(function (c) { return c.name; }) });
+        var at = focus ? focus.index : 0;
+        render();
+        focus.index = Math.min(at, focus.items.length - 1);
+        focus.apply();
+      }, function () {});
+    });
   }
 
   // ---------- Player ----------
@@ -1188,10 +1438,12 @@
       clearTimeout(this.epgTimer);
       var channel = this.lineup[this.index];
       var client = App.session && App.session.client;
-      if (!client || !channel || !channel.streamID) return;
+      var xmltv = !client && global.VeyloXMLTV && global.VeyloXMLTV.available();
+      if (!channel || (!xmltv && (!client || !channel.streamID))) return;
       var self = this;
       this.epgTimer = setTimeout(function () {
-        client.shortEPG(channel.streamID).then(function (list) {
+        var source = xmltv ? Promise.resolve(global.VeyloXMLTV.lookup(channel)) : client.shortEPG(channel.streamID);
+        source.then(function (list) {
           if (self.lineup[self.index] !== channel || App.screen !== 'player') return;
           var box = document.getElementById('player-epg');
           if (box) box.innerHTML = epgHTML(list);
@@ -1457,6 +1709,10 @@
     navHTML: navHTML, navKey: navKey, navFocus: navFocus, openTab: openTab, askExit: askExit,
     showBrowser: function () { Browser.focus = 'cats'; showBrowser(); },
     showPlayer: showPlayer,
+    askPIN: askPIN,
+    unlock: unlock,
+    isLockedCat: isLockedCat,
+    isHidden: isHidden,
     logoHTML: logoHTML,
     epgHTML: epgHTML,
     toggleFavorite: toggleFavorite,

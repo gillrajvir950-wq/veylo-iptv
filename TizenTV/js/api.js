@@ -51,28 +51,34 @@
     });
   }
 
-  /** Reads a file the Download API saved in the app's private temp folder. */
-  function readDownloaded(name) {
+  /** Reads a file the Download API saved in the app's private temp folder (text, or bytes when `binary`). */
+  function readDownloaded(name, binary) {
     return new Promise(function (resolve, reject) {
       var fs = global.tizen.filesystem;
       var virtualPath = 'wgt-private-tmp/' + name;
       try {
         if (fs.openFile) {
           var handle = fs.openFile(virtualPath, 'r');
-          var text = handle.readString();
+          var text = binary ? handle.readData() : handle.readString();
           handle.close();
           try { fs.deleteFile(virtualPath); } catch (e) { /* temp folder is cleaned anyway */ }
           return resolve(text);
         }
       } catch (e) { /* fall back to the older API below */ }
       fs.resolve(virtualPath, function (file) {
+        if (binary) {
+          file.openStream('r', function (stream) {
+            try { var bytes = stream.readBytes(file.fileSize); stream.close(); resolve(new Uint8Array(bytes)); } catch (e) { reject(e); }
+          }, function (err) { reject(err); });
+          return;
+        }
         file.readAsText(function (text) { resolve(text); }, function (err) { reject(err); }, 'UTF-8');
       }, function (err) { reject(err); }, 'r');
     });
   }
 
   /** Samsung's native downloader: no browser Origin and a chosen User-Agent. */
-  function nativeText(url, agent, timeout) {
+  function nativeText(url, agent, timeout, binary) {
     return new Promise(function (resolve, reject) {
       var name = 'veylo-' + Date.now() + '-' + Math.floor(Math.random() * 1e6) + '.txt';
       var finished = false;
@@ -97,7 +103,7 @@
           oncompleted: function () {
             if (finished) return;
             finished = true; clearTimeout(timer);
-            readDownloaded(name).then(resolve, function () { reject(new Error('Couldn’t read the provider’s answer.')); });
+            readDownloaded(name, binary).then(resolve, function () { reject(new Error('Couldn’t read the provider’s answer.')); });
           },
           onfailed: function (downloadId, error) {
             if (finished) return;
@@ -113,12 +119,12 @@
   }
 
   /** Native download with each identity in turn until one is accepted. */
-  function nativeWithAgents(url, timeout) {
+  function nativeWithAgents(url, timeout, binary) {
     var agents = State.userAgent ? [State.userAgent].concat(AGENTS.filter(function (a) { return a !== State.userAgent; })) : AGENTS;
     var index = 0;
     function attempt() {
       var agent = agents[index];
-      return nativeText(url, agent, timeout).then(function (text) {
+      return nativeText(url, agent, timeout, binary).then(function (text) {
         State.userAgent = agent;
         return text;
       }, function (error) {
@@ -143,6 +149,31 @@
       return nativeWithAgents(url, timeout).catch(function () {
         throw new Error('The provider blocked this TV app (HTTP ' + error.status + '), also when retrying as a media player.');
       });
+    });
+  }
+
+  /** Bytes (for gzipped guides): web request first, native download for blocking providers. */
+  function fetchBytes(url, timeout) {
+    var host = hostKey(url);
+    if (blockedHosts[host] && hasNativeDownload()) return nativeWithAgents(url, timeout, true);
+    return new Promise(function (resolve, reject) {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.responseType = 'arraybuffer';
+      xhr.timeout = timeout || 120000;
+      xhr.onload = function () {
+        if (xhr.status >= 200 && xhr.status < 300) return resolve(new Uint8Array(xhr.response));
+        var error = new Error('HTTP status ' + xhr.status);
+        error.status = xhr.status;
+        reject(error);
+      };
+      xhr.onerror = function () { var e = new Error('Couldn’t reach the guide link.'); e.status = 0; reject(e); };
+      xhr.ontimeout = function () { var e = new Error('The guide took too long to download.'); e.status = -1; reject(e); };
+      xhr.send();
+    }).catch(function (error) {
+      if (!isBlockStatus(error.status) || !hasNativeDownload()) throw error;
+      blockedHosts[host] = true;
+      return nativeWithAgents(url, timeout, true);
     });
   }
 
@@ -628,6 +659,7 @@
     Xtream: Xtream,
     parseM3U: parseM3U,
     xtreamFromPlaylist: xtreamFromPlaylist,
+    fetchBytes: fetchBytes,
     title: title
   };
 })(window);

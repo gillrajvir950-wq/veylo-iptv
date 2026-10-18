@@ -473,3 +473,20 @@ html.playing, body.playing, body.playing #app { background: transparent; }
 .gprog.focused { background: #fff; color: #000; }
 .gnowline { position: absolute; top: 0; bottom: 0; width: 3px; background: var(--live); opacity: 0.8; pointer-events: none; }
 .gnow { position: absolute; top: 0; width: 3px; height: 40px; background: var(--live); }
+
+/* ---------- Parental lock ---------- */
+.pin-modal { position: fixed; left: 0; top: 0; width: 1920px; height: 1080px; z-index: 20; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; }
+.pin-card { width: 760px; padding: 50px; border-radius: 36px; background: #17151d; border: 1px solid var(--line); text-align: center; }
+.pin-card h2 { font-size: 38px; margin-bottom: 36px; }
+.pin-cells { display: flex; justify-content: center; }
+.pin-cell { width: 110px; height: 130px; border-radius: 22px; background: rgba(255,255,255,0.08); font-size: 60px; font-weight: 900; line-height: 130px; }
+.pin-cell + .pin-cell { margin-left: 22px; }
+.pin-cell.focused { box-shadow: 0 0 0 4px #fff; background: rgba(158, 99, 255, 0.35); }
+.pin-error { color: #ff6b6b; font-size: 26px; margin-top: 26px; }
+.pin-hint { color: var(--faint); font-size: 20px; margin-top: 30px; }
+.lockscreen { top: 0; }
+.lockscreen .sub { font-size: 24px; color: var(--muted); margin-bottom: 20px; }
+.lock-list { height: 820px; overflow: hidden; width: 1100px; }
+.lock-list h3 { font-size: 20px; letter-spacing: 1.5px; color: var(--faint); margin: 20px 0 12px 10px; }
+.lock-list .item.on .value { color: #ffd60a; }
+.engine-video.preview-video { z-index: 3; border-radius: 22px; background: #000; }

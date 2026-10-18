@@ -20,7 +20,7 @@
 
   function sections() {
     var s = session();
-    var favs = Store.favorites().map(function (k) { return UI.App.byKey[k]; }).filter(Boolean);
+    var favs = Store.favorites().map(function (k) { return UI.App.byKey[k]; }).filter(function (c) { return c && !UI.isHidden(c); });
     var list = [{ id: 'fav', label: 'Favorites', channels: favs }, { id: 'all', label: 'All Channels', channels: s.channels }];
     s.categories.forEach(function (c) { list.push({ id: 'c:' + c.name, label: global.VeyloAPI.title(c.name), channels: c.channels }); });
     return list;

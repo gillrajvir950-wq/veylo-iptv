@@ -161,6 +161,23 @@
       write(scoped('veylo.tv.vodProgress'), all);
     },
 
+    /** Parental lock: PIN (whole TV), locked categories per account ("live:Name", "movie:Name"…). */
+    pin: function () { return read('veylo.tv.pin', ''); },
+    setPin: function (pin) { write('veylo.tv.pin', pin || ''); },
+    lockedCats: function () { return read(scoped('veylo.tv.locked'), []); },
+    toggleLockedCat: function (id) {
+      var list = Store.lockedCats();
+      var at = list.indexOf(id);
+      if (at >= 0) list.splice(at, 1); else list.push(id);
+      write(scoped('veylo.tv.locked'), list);
+      return at < 0;
+    },
+    unlockedCats: function () { return read(scoped('veylo.tv.unlockedAdult'), []); },
+    autoAdult: function () { return read('veylo.tv.autoAdult', true); },
+    setAutoAdult: function (on) { write('veylo.tv.autoAdult', !!on); },
+    preview: function () { return read('veylo.tv.preview', false); },
+    setPreview: function (on) { write('veylo.tv.preview', !!on); },
+
     lastChannel: function () { return read(scoped('veylo.tv.lastChannel'), ''); },
     setLastChannel: function (key) { write(scoped('veylo.tv.lastChannel'), key); },
     autostart: function () { return read('veylo.tv.autostart', true); },

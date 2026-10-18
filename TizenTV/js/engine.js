@@ -284,7 +284,6 @@
     this.mediaSource = new global.MediaSource();
     this.objectURL = global.URL.createObjectURL(this.mediaSource);
     video.style.display = 'block';
-    video.muted = false;
     video.src = this.objectURL;
     this.mediaSource.addEventListener('sourceopen', function () {
       if (self.stopped) return;
@@ -533,7 +532,8 @@
     hasNative: hasNative,
     cleanupTemp: cleanupTemp,
     /** mode: 'web' | 'native'. callbacks: onPlaying, onBuffering, onError(name). */
-    start: function (url, mode, callbacks) {
+    /** options.rect = {left, top, width, height}: small muted picture above the page (live preview). */
+    start: function (url, mode, callbacks, options) {
       var anchor = document.getElementById('app');
       if (!anchor || !supported()) {
         setTimeout(function () { callbacks.onError('ENGINE_UNAVAILABLE'); }, 0);
@@ -543,7 +543,17 @@
       video.className = 'engine-video';
       video.setAttribute('playsinline', '');
       anchor.parentNode.insertBefore(video, anchor);
-      return new Session(video, url, mode, callbacks);
+      if (options && options.rect) {
+        var r = options.rect;
+        video.className = 'engine-video preview-video';
+        video.style.left = r.left + 'px';
+        video.style.top = r.top + 'px';
+        video.style.width = r.width + 'px';
+        video.style.height = r.height + 'px';
+      }
+      var session = new Session(video, url, mode, callbacks);
+      if (options && options.muted) video.muted = true;
+      return session;
     }
   };
 })(window);

@@ -14,7 +14,7 @@
 
   function channelShelf(id, title, keys) {
     var byKey = UI.App.byKey || {};
-    var items = keys.map(function (k) { return byKey[k]; }).filter(Boolean).slice(0, LIMIT);
+    var items = keys.map(function (k) { return byKey[k]; }).filter(function (c) { return c && !UI.isHidden(c); }).slice(0, LIMIT);
     return items.length ? { id: id, title: title, type: 'channel', items: items } : null;
   }
 
@@ -44,7 +44,7 @@
       var lib = libs[kind];
       if (!lib || key.charAt(1) !== ':') return;
       var item = lib.byID[key.slice(2)];
-      if (item && items.length < LIMIT) items.push({ item: item, progress: progress[key] });
+      if (item && global.VeyloLibrary.visible(kind, lib, [item]).length && items.length < LIMIT) items.push({ item: item, progress: progress[key] });
     });
     return items.length ? { id: 'resume', title: 'Continue watching', type: 'resume', items: items } : null;
   }
@@ -85,8 +85,8 @@
         var extra = [];
         var resume = resumeShelf(libs);
         if (resume) extra.push(resume);
-        if (libs.movie) extra.push({ id: 'movies', title: 'Recently added movies', type: 'poster', items: newest(libs.movie.items) });
-        if (libs.series) extra.push({ id: 'series', title: 'Recently added series', type: 'poster', items: newest(libs.series.items) });
+        if (libs.movie) extra.push({ id: 'movies', title: 'Recently added movies', type: 'poster', items: newest(global.VeyloLibrary.visible('movie', libs.movie, libs.movie.items)) });
+        if (libs.series) extra.push({ id: 'series', title: 'Recently added series', type: 'poster', items: newest(global.VeyloLibrary.visible('series', libs.series, libs.series.items)) });
         var focusedID = H.shelves[H.row] && H.shelves[H.row].id;
         // Continue Watching goes first; the rest after the channel shelves.
         H.shelves = (resume ? [resume] : []).concat(H.shelves, extra.filter(function (x) { return x !== resume; }));

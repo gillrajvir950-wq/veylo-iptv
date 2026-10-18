@@ -112,7 +112,23 @@
   // ---------- Library page ----------
   var Lib = { kind: 'movie', focus: 'cats', sectionIndex: 1, col: 0, query: '', positions: {}, data: null };
 
+  /** Category ids of this kind that are locked right now (PIN not entered this session). */
+  function lockedIDs(kind, lib) {
+    var ids = {};
+    if (UI.App.unlocked) return ids;
+    lib.categories.forEach(function (c) { if (UI.isLockedCat(kind, c.name)) ids[c.id] = true; });
+    return ids;
+  }
+
+  function visibleItems(kind, lib, items) {
+    var ids = lockedIDs(kind, lib);
+    if (!Object.keys(ids).length) return items;
+    return items.filter(function (it) { return !ids[it.categoryID]; });
+  }
+
   function sectionsFor(kind, lib) {
+    var locked = lockedIDs(kind, lib);
+    var lockedCount = Object.keys(locked).length;
     var progress = Store.progressAll();
     var resume = [];
     Object.keys(progress).reverse().forEach(function (key) {
@@ -123,15 +139,18 @@
       if (item) resume.push(item);
     });
     var mine = Store.myList(kind).map(function (id) { return lib.byID[id]; }).filter(Boolean);
-    var recent = lib.items.slice().sort(function (a, b) { return b.added - a.added; }).slice(0, 120);
+    var all = visibleItems(kind, lib, lib.items);
+    var recent = all.slice().sort(function (a, b) { return b.added - a.added; }).slice(0, 120);
     var sections = [
-      { id: 'search', label: Lib.query ? 'Search: ' + Lib.query : 'Search', glyph: '⌕', items: searchItems(lib) },
-      { id: 'all', label: kind === 'movie' ? 'All Movies' : 'All Series', glyph: '▤', items: lib.items },
-      { id: 'resume', label: 'Continue Watching', glyph: '▶', items: resume },
-      { id: 'mylist', label: 'My List', glyph: '♥', items: mine },
+      { id: 'search', label: Lib.query ? 'Search: ' + Lib.query : 'Search', glyph: '⌕', items: visibleItems(kind, lib, searchItems(lib)) },
+      { id: 'all', label: kind === 'movie' ? 'All Movies' : 'All Series', glyph: '▤', items: all },
+      { id: 'resume', label: 'Continue Watching', glyph: '▶', items: visibleItems(kind, lib, resume) },
+      { id: 'mylist', label: 'My List', glyph: '♥', items: visibleItems(kind, lib, mine) },
       { id: 'recent', label: 'Recently Added', glyph: '✦', items: recent }
     ];
+    if (lockedCount) sections.push({ id: 'locked', label: 'Locked (' + lockedCount + ')', glyph: '✱', items: [], locked: true });
     lib.categories.forEach(function (c) {
+      if (locked[c.id]) return;
       sections.push({ id: 'c:' + c.id, label: global.VeyloAPI.title(c.name), glyph: '', items: c.items });
     });
     return sections;
@@ -258,6 +277,7 @@
       var message = {
         search: Lib.query ? 'Nothing found.' : 'Press OK, type a title and press Done.',
         resume: 'What you start watching shows up here.',
+        locked: 'These categories are locked.<br>Press OK and enter your PIN to show them.',
         mylist: 'Press the <b>yellow</b> button on a poster to add it to My List.'
       }[section.id] || 'Nothing here.';
       document.querySelector('#lib-grid .vlist-inner').innerHTML = '<div class="empty">' + message + '</div>';
@@ -332,6 +352,10 @@
       flush();
       var section = Lib.sections[Lib.sectionIndex];
       if (key === K.RIGHT || key === K.ENTER) {
+        if (section.locked && key === K.ENTER) {
+          UI.unlock(function () { show(Lib.kind); });
+          return;
+        }
         if (section.id === 'search' && key === K.ENTER) {
           var input = document.getElementById('lib-search');
           input.value = Lib.query;
@@ -965,7 +989,9 @@
 
   global.VeyloLibrary = {
     show: show,
+    cache: { get: cacheGet, put: cachePut },
     load: function (kind) { return client() ? library(kind) : Promise.reject(new Error('no Xtream')); },
+    visible: function (kind, lib, items) { return visibleItems(kind, lib, items); },
     /** Opens a movie/series detail from elsewhere (Home); BACK returns there. */
     openItem: function (item, back) {
       Lib.kind = item.kind;
