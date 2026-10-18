@@ -3,7 +3,7 @@
 Web app for Samsung Smart TVs (Tizen 3.0+, tested target: 2021 Q60A / Tizen 6.0).
 Same idea as the iPhone app: Xtream Codes or M3U login, saved providers, categories,
 favorites, recently watched, search, channel numbers and NOW/NEXT guide.
-Playback uses Samsung's **AVPlay** (MPEG-TS by default, automatic HLS retry).
+Playback uses the **Veylo engine** (the app fetches the MPEG-TS stream like VLC does and plays it through the TV's web video player, using [mux.js](https://github.com/videojs/mux.js), Apache-2.0) with Samsung's **AVPlay** as the backup (several player identities, TS and HLS). Settings › Player switches between them.
 
 > Use only streams you are authorized to access. Saved providers (including the password or
 > playlist link) are kept only in this TV's app storage, and only when "Save this provider" is on.

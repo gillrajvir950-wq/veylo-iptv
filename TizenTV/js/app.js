@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.1.8';
+  var VERSION = '0.1.9';
 
   // ---------- Keys ----------
   var K = {
@@ -856,6 +856,8 @@
         '</div>' +
       '</div><div>' +
         '<div class="group"><h3>PLAYBACK</h3>' +
+          '<div class="item focusable" data-action="engine">Player<span class="value">' +
+            (Player.engineEnabled() ? 'Veylo engine (like iPhone)' : 'Samsung player') + '</span></div>' +
           '<div class="item focusable" data-action="format">Live stream format<span class="value">' +
             (Store.format() === 'ts' ? 'MPEG-TS (recommended)' : 'HLS (m3u8)') + '</span></div>' +
         '</div>' +
@@ -886,6 +888,10 @@
         showLogin(null, null, { adding: true });
       } else if (action === 'accounts') {
         showAccounts();
+      } else if (action === 'engine') {
+        Player.setEngineEnabled(!Player.engineEnabled());
+        toast(Player.engineEnabled() ? 'Veylo engine on — Samsung player is the backup' : 'Samsung player only');
+        showSettings();
       } else if (action === 'format') {
         Store.setFormat(Store.format() === 'ts' ? 'm3u8' : 'ts');
         toast('Applies the next time you connect');

@@ -38,13 +38,40 @@
   }
   function formatOf(url) { return /\.m3u8(\?|$)/i.test(url) ? 'HLS' : 'TS'; }
 
-  /** Ordered tries: the identity that worked last time first, then every identity × format. */
+  var ENGINE_KEY = 'veylo.tv.engine';
+  var ENGINE_TRIES = [
+    { id: 'engine-web', label: 'Veylo engine', mode: 'web' },
+    { id: 'engine-native', label: 'Veylo engine · VLC', mode: 'native' }
+  ];
+
+  /** The Veylo engine (js/engine.js) is on unless switched off in Settings. */
+  function engineEnabled() {
+    var engine = global.VeyloEngine;
+    if (!engine || !engine.supported()) return false;
+    try { return global.localStorage.getItem(ENGINE_KEY) !== 'off'; } catch (e) { return true; }
+  }
+
+  /** Engine tries (MPEG-TS only), the mode that worked last time first. */
+  function engineTries(url, altURL, memory) {
+    if (!engineEnabled()) return [];
+    var ts = formatOf(url) === 'TS' ? url : (altURL && formatOf(altURL) === 'TS' ? altURL : '');
+    if (!ts) return [];
+    var tries = ENGINE_TRIES.filter(function (t) { return t.mode !== 'native' || global.VeyloEngine.hasNative(); });
+    if (memory && memory.agent === 'engine-native') tries.reverse();
+    return tries.map(function (t) { return { url: ts, agent: t, format: 'TS', engine: t.mode }; });
+  }
+
+  /** Ordered tries: what worked last time first, then the Veylo engine, then Samsung's player
+   *  with every identity × format. */
   function buildPlan(url, altURL) {
     var urls = [url];
     if (altURL) urls.push(altURL);
     var memory = remembered();
     var agents = AGENTS.slice();
     var plan = [];
+    var engine = engineTries(url, altURL, memory);
+    var avplayWon = memory && agentByID(memory.agent);
+    if (!avplayWon) plan = plan.concat(engine);
     if (memory) {
       var known = agentByID(memory.agent);
       if (known) {
@@ -54,9 +81,13 @@
         if (memory.format === 'TS' && altURL && formatOf(altURL) === 'TS') urls = [altURL, url];
       }
     }
+    var samsung = [];
     agents.forEach(function (agent) {
-      urls.forEach(function (u) { plan.push({ url: u, agent: agent, format: formatOf(u) }); });
+      urls.forEach(function (u) { samsung.push({ url: u, agent: agent, format: formatOf(u) }); });
     });
+    // Samsung's player won last time: its winning try first, then the engine, then the rest.
+    if (avplayWon) plan = [samsung[0]].concat(engine, samsung.slice(1));
+    else plan = plan.concat(samsung);
     return plan;
   }
 
@@ -93,11 +124,24 @@
       Player.attemptTimer = setTimeout(function () {
         if (Player.current === current && !current.playing) Player.fail('NO_PICTURE_' + Math.round(ATTEMPT_TIMEOUT / 1000) + 'S');
       }, ATTEMPT_TIMEOUT);
-      if (hasAVPlay()) {
+      if (tryNow.engine) {
+        Player.openEngine(tryNow.url, tryNow.engine);
+      } else if (hasAVPlay()) {
         Player.openAVPlay(tryNow.url, tryNow.agent.ua);
       } else {
         Player.openHTML5(tryNow.url);
       }
+    },
+
+    openEngine: function (url, mode) {
+      Player.gen = (Player.gen || 0) + 1;
+      var gen = Player.gen;
+      function live() { return gen === Player.gen; }
+      Player.engine = global.VeyloEngine.start(url, mode, {
+        onPlaying: function () { if (live()) Player.started(); },
+        onBuffering: function () { if (live()) Player.onState('buffering'); },
+        onError: function (name) { if (live()) Player.fail(name); }
+      });
     },
 
     started: function () {
@@ -210,6 +254,13 @@
     },
 
     togglePause: function () {
+      if (Player.engine) {
+        var v = document.getElementById('html5-video');
+        if (!v) return false;
+        if (v.paused) { v.play(); return false; }
+        v.pause();
+        return true;
+      }
       if (hasAVPlay()) {
         var av = global.webapis.avplay;
         try {
@@ -232,6 +283,10 @@
         clearTimeout(Player.attemptTimer);
       }
       Player.gen = (Player.gen || 0) + 1;
+      if (Player.engine) {
+        try { Player.engine.stop(); } catch (e) {}
+        Player.engine = null;
+      }
       if (hasAVPlay()) {
         try {
           var av = global.webapis.avplay;
@@ -259,6 +314,11 @@
     restore: function () {
       if (hasAVPlay()) { try { global.webapis.avplay.restore(); } catch (e) {} }
     }
+  };
+
+  Player.engineEnabled = engineEnabled;
+  Player.setEngineEnabled = function (on) {
+    try { global.localStorage.setItem(ENGINE_KEY, on ? 'on' : 'off'); } catch (e) {}
   };
 
   global.VeyloPlayer = Player;
