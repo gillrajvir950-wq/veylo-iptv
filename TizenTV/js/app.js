@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.1.2';
+  var VERSION = '0.1.3';
 
   // ---------- Keys ----------
   var K = {
@@ -58,7 +58,7 @@
   function logoHTML(channel) {
     var fallback = '<div class="initials">' + initials(channel.title) + '</div>';
     if (!channel.logo) return '<div class="logo">' + fallback + '</div>';
-    return '<div class="logo"><img src="' + esc(channel.logo) + '" onerror="this.parentNode.innerHTML=this.parentNode.getAttribute(\'data-fallback\')"></div>'
+    return '<div class="logo"><img decoding="async" src="' + esc(channel.logo) + '" onerror="this.parentNode.innerHTML=this.parentNode.getAttribute(\'data-fallback\')"></div>'
       .replace('<div class="logo">', '<div class="logo" data-fallback="' + esc(fallback) + '">');
   }
 
@@ -105,7 +105,19 @@
     if (!this.items.length) return false;
     var next = clamp(this.index + delta, 0, this.items.length - 1);
     if (next === this.index) return false;
+    var visible = this.visibleCount();
+    var old = this.index;
     this.index = next;
+    // Inside the visible window: just move the highlight (no rebuild, no image reloads).
+    if (this.focused && next >= this.top && next < this.top + visible) {
+      var rows = this.inner.children;
+      var a = rows[old - this.top], b = rows[next - this.top];
+      if (a && b) {
+        a.classList.remove('focused');
+        b.classList.add('focused');
+        return true;
+      }
+    }
     this.render();
     return true;
   };
@@ -138,6 +150,8 @@
   };
 
   function setScreen(name, html, handler) {
+    if (Browser.pendingSection) { clearTimeout(Browser.pendingSection); Browser.pendingSection = null; }
+    clearTimeout(Browser.previewTimer);
     App.screen = name;
     App.keyHandler = handler;
     document.body.classList.toggle('playing', name === 'player');
@@ -159,6 +173,8 @@
       }
       return;
     }
+    if (event.repeat && App.lastKeyTime && Date.now() - App.lastKeyTime < 70) { event.preventDefault(); return; }
+    App.lastKeyTime = Date.now();
     if (App.keyHandler) {
       var handled = App.keyHandler(event.keyCode, event);
       if (handled !== false) event.preventDefault();
@@ -211,15 +227,18 @@
   FormFocus.prototype.current = function () { return this.items[this.index]; };
 
   // ---------- Login ----------
-  function showLogin(errorText, prefill) {
-    var saved = Store.providers().sort(function (a, b) { return (b.lastUsed || 0) - (a.lastUsed || 0); });
-    var form = prefill || { kind: 'xtream', server: '', username: '', password: '', playlistURL: '', save: true };
+  function showLogin(errorText, prefill, options) {
+    options = options || {};
+    var adding = !!(options.adding || (prefill && prefill.adding));
+    var saved = adding ? [] : Store.providers().sort(function (a, b) { return (b.lastUsed || 0) - (a.lastUsed || 0); });
+    var form = prefill || { kind: 'xtream', server: '', username: '', password: '', playlistURL: '', name: '', save: true };
+    form.adding = adding;
     var html =
       '<div class="backdrop"></div>' +
       '<div class="login">' +
         '<div class="login-card">' +
           '<div class="brand"><img src="brand.png"><span>veylo</span></div>' +
-          '<h1>Add your provider</h1>' +
+          '<h1>' + (adding ? 'Add another account' : 'Add your provider') + '</h1>' +
           '<p class="sub">Use only streams you are authorized to access.</p>' +
           '<div class="tabs">' +
             '<div class="tab focusable' + (form.kind === 'xtream' ? ' active' : '') + '" data-action="kind" data-kind="xtream">Xtream Codes</div>' +
@@ -230,6 +249,7 @@
               field('username', 'Username', form.username) +
               field('password', 'Password', form.password, 'password')
             : field('playlistURL', 'Playlist URL', form.playlistURL)) +
+          field('name', 'Account name (optional, e.g. "Home" or "Sports")', form.name || '') +
           '<div class="check focusable' + (form.save ? ' on' : '') + '" data-action="save"><div class="box">' + (form.save ? '✓' : '') + '</div><span>Save this provider on this TV</span></div>' +
           '<div class="button focusable" data-action="connect">Connect</div>' +
           (errorText ? '<div class="error">' + esc(errorText) + '</div>' : '') +
@@ -261,6 +281,7 @@
     setScreen('login', html, function (key) {
       if (key === K.UP || key === K.DOWN || key === K.LEFT || key === K.RIGHT) { focus.move(key); return; }
       if (key === K.BACK || key === K.ESC) {
+        if (adding) { showAccounts(); return; }
         if (App.session) { showBrowser(); return; }
         exitApp();
         return;
@@ -284,6 +305,7 @@
         var profile = form.kind === 'xtream'
           ? { kind: 'xtream', server: form.server, username: form.username, password: form.password }
           : { kind: 'm3u', playlistURL: form.playlistURL };
+        if (form.name) profile.name = form.name;
         if (form.kind === 'xtream' && (!/^https?:\/\//i.test(form.server) || !form.username || !form.password)) {
           showLogin('Enter the server URL (starting with http://), username and password.', form);
           return;
@@ -380,7 +402,8 @@
     s.categories.forEach(function (c, i) {
       sections.push({ id: 'c' + i, label: API.title(c.name), glyph: '', channels: c.channels });
     });
-    sections.push({ id: 'settings', label: 'Providers & Settings', glyph: '⚙', channels: [] });
+    sections.push({ id: 'accounts', label: 'Accounts', glyph: '◉', channels: [] });
+    sections.push({ id: 'settings', label: 'Settings', glyph: '⚙', channels: [] });
     return sections;
   }
 
@@ -419,6 +442,7 @@
             '<span><span class="key">OK</span>Play</span>' +
             '<span><span class="key">◀ ▶</span>Categories / Channels</span>' +
             '<span><span class="key yellow">&nbsp;</span>Favorite</span>' +
+            '<span><span class="key green">&nbsp;</span>Accounts</span>' +
             '<span><span class="key">0-9</span>Channel number</span>' +
             '<span><span class="key">BACK</span>' + (Browser.focus === 'list' ? 'Categories' : 'Exit') + '</span>' +
           '</div>' +
@@ -428,7 +452,8 @@
     setScreen('browser', html, browserKey);
 
     Browser.catList = new VList(document.getElementById('cats'), 74, function (section, i, focused, y) {
-      var count = section.id === 'settings' || section.id === 'search' ? '' : section.channels.length;
+      var count = section.id === 'accounts' ? Store.providers().length
+        : section.id === 'settings' || section.id === 'search' ? '' : section.channels.length;
       return '<div class="cat' + (i === Browser.sectionIndex ? ' selected' : '') + (focused ? ' focused' : '') +
         '">' +
         '<span class="glyph">' + section.glyph + '</span>' +
@@ -466,7 +491,7 @@
     var section = Browser.sections[index];
     document.getElementById('section-title').textContent =
       section.id === 'search' ? (Browser.query ? 'Results for “' + Browser.query + '”' : 'Search') : section.label;
-    var sub = section.id === 'settings' ? 'Press OK to open'
+    var sub = section.id === 'settings' || section.id === 'accounts' ? 'Press OK to open'
       : section.id === 'search' && !Browser.query ? 'Press OK to type'
       : section.channels.length.toLocaleString() + ' channels';
     document.getElementById('section-sub').textContent = sub;
@@ -477,14 +502,35 @@
         favorites: 'No favorites yet.<br>Press the <b>yellow</b> button on any channel to add it here.',
         recent: 'Channels you watch will show up here.',
         search: Browser.query ? 'Nothing found.' : 'Press OK, type a channel name and press Done.',
-        settings: 'Switch providers, change the stream format or sign out.<br>Press OK to open.'
+        accounts: 'Watching: <b>' + esc((App.session.profile && App.session.profile.name) || 'Provider') + '</b><br>' +
+          'Press OK to switch accounts or add another one.<br>' +
+          '<span style="font-size:22px">Tip: the <b style="color:#30d158">green</b> button opens Accounts from anywhere.</span>',
+        settings: 'Change the stream format, see your subscription or sign out.<br>Press OK to open.'
       }[section.id] || 'No channels here.';
       box.innerHTML = '<div class="empty">' + message + '</div>';
     }
     updatePreview();
   }
 
+  function flushSection() {
+    if (!Browser.pendingSection) return;
+    clearTimeout(Browser.pendingSection);
+    Browser.pendingSection = null;
+    if (App.screen !== 'browser') return;
+    if (Browser.catList.index !== Browser.sectionIndex) {
+      openSection(Browser.catList.index, Browser.positions[Browser.sections[Browser.catList.index].id] || 0);
+      Browser.catList.render();   // moves the "selected" mark
+    }
+  }
+
+  /** Preview (big logo + EPG) only when the highlight rests on a channel. */
+  function schedulePreview() {
+    clearTimeout(Browser.previewTimer);
+    Browser.previewTimer = setTimeout(updatePreview, 160);
+  }
+
   function setBrowserFocus(where) {
+    flushSection();
     Browser.focus = where;
     Browser.catList.focused = where === 'cats';
     Browser.chList.focused = where === 'list';
@@ -495,6 +541,7 @@
   }
 
   function updatePreview() {
+    clearTimeout(Browser.previewTimer);
     var box = document.getElementById('preview');
     if (!box) return;
     var channel = Browser.chList.current();
@@ -519,7 +566,7 @@
           var target = document.getElementById('preview-epg');
           if (target) target.innerHTML = epgHTML(list);
         }).catch(function () {});
-      }, 450);
+      }, 350);
     }
   }
 
@@ -544,18 +591,26 @@
   function browserKey(key) {
     var section = Browser.sections[Browser.sectionIndex];
     if (key >= 48 && key <= 57 && Browser.chList.items.length) { numberEntry(key - 48); return; }
+    if (key === K.GREEN) { showAccounts(); return; }
 
     if (Browser.focus === 'cats') {
       if (key === K.UP || key === K.DOWN) {
         if (Browser.catList.move(key === K.UP ? -1 : 1)) {
-          Browser.positions[section.id] = Browser.chList.index;
-          openSection(Browser.catList.index, Browser.positions[Browser.sections[Browser.catList.index].id] || 0);
+          if (!Browser.pendingSection) Browser.positions[section.id] = Browser.chList.index;
+          // Load the channels only once the highlight rests on a category.
+          clearTimeout(Browser.pendingSection);
+          Browser.pendingSection = setTimeout(flushSection, 220);
         }
-      } else if (key === K.RIGHT) {
+        return;
+      }
+      flushSection();
+      section = Browser.sections[Browser.sectionIndex];
+      if (key === K.RIGHT) {
         if (Browser.chList.items.length) setBrowserFocus('list');
       } else if (key === K.ENTER) {
         if (section.id === 'search') { openSearch(); return; }
         if (section.id === 'settings') { showSettings(); return; }
+        if (section.id === 'accounts') { showAccounts(); return; }
         if (Browser.chList.items.length) setBrowserFocus('list');
       } else if (key === K.BACK || key === K.ESC) {
         var now = Date.now();
@@ -568,9 +623,9 @@
 
     // Channel list
     if (key === K.UP || key === K.DOWN) {
-      if (Browser.chList.move(key === K.UP ? -1 : 1)) updatePreview();
+      if (Browser.chList.move(key === K.UP ? -1 : 1)) schedulePreview();
     } else if (key === K.CH_UP || key === K.CH_DOWN) {
-      if (Browser.chList.move(key === K.CH_UP ? -Browser.chList.visibleCount() : Browser.chList.visibleCount())) updatePreview();
+      if (Browser.chList.move(key === K.CH_UP ? -Browser.chList.visibleCount() : Browser.chList.visibleCount())) schedulePreview();
     } else if (key === K.LEFT || key === K.BACK || key === K.ESC) {
       setBrowserFocus('cats');
     } else if (key === K.ENTER || key === K.PLAY || key === K.PLAY_PAUSE) {
@@ -620,6 +675,119 @@
     }, 1400);
   }
 
+  // ---------- Accounts (saved providers) ----------
+  function showAccounts(message) {
+    var s = App.session;
+    var activeID = s && s.profile && s.profile.id;
+    var providers = Store.providers().sort(function (a, b) { return (b.lastUsed || 0) - (a.lastUsed || 0); });
+    var confirmID = null;
+    var confirmTimer = null;
+    var renamingID = null;
+
+    var rows = providers.map(function (p) {
+      var active = p.id === activeID;
+      return '<div class="acc-row">' +
+        '<div class="acc-card focusable' + (active ? ' active' : '') + '" data-action="switch" data-id="' + esc(p.id) + '">' +
+          '<div class="icon">' + esc((p.name || '?').charAt(0).toUpperCase()) + '</div>' +
+          '<div class="text"><div class="name">' + esc(p.name) + '</div>' +
+          '<div class="meta">' + (p.kind === 'xtream' ? 'Xtream Codes' : 'M3U Playlist') + '</div></div>' +
+          (active ? '<span class="pill">WATCHING</span>' : '<span class="go">Switch ›</span>') +
+        '</div>' +
+        '<div class="acc-btn focusable" data-action="rename" data-id="' + esc(p.id) + '">Rename</div>' +
+        '<div class="acc-btn danger focusable" data-action="remove" data-id="' + esc(p.id) + '">Remove</div>' +
+      '</div>';
+    }).join('');
+
+    var html =
+      '<div class="backdrop"></div><div class="accounts">' +
+        '<div class="brand"><img src="brand.png"><span>veylo</span></div>' +
+        '<h1>Accounts</h1>' +
+        '<p class="sub">Save several providers on this TV and switch between them any time.</p>' +
+        (message ? '<div class="acc-msg">' + esc(message) + '</div>' : '') +
+        '<div class="acc-list">' + rows +
+          '<div class="acc-row"><div class="acc-card add focusable" data-action="add">' +
+            '<div class="icon">＋</div><div class="text"><div class="name">Add account</div>' +
+            '<div class="meta">Xtream Codes or M3U playlist</div></div></div></div>' +
+        '</div>' +
+        (s && !activeID ? '<p class="sub small">The account you are watching isn’t saved. Add it here to switch back to it later.</p>' : '') +
+        '<input class="search-input" id="rename-input" type="text" autocomplete="off">' +
+      '</div>' +
+      '<div class="hints acc-hints">' +
+        '<span><span class="key">OK</span>Select</span>' +
+        '<span><span class="key">◀ ▶</span>Rename / Remove</span>' +
+        '<span><span class="key">BACK</span>' + (s ? 'Channels' : 'Login') + '</span>' +
+      '</div>';
+
+    setScreen('accounts', html, function (key) {
+      if (key === K.UP || key === K.DOWN || key === K.LEFT || key === K.RIGHT) { focus.move(key); resetConfirm(); return; }
+      if (key === K.BACK || key === K.ESC || key === K.GREEN) {
+        if (App.session) showBrowser(); else showLogin();
+        return;
+      }
+      if (key !== K.ENTER) return false;
+      var node = focus.current();
+      var action = node && node.getAttribute('data-action');
+      var id = node && node.getAttribute('data-id');
+      var chosen = Store.providers().filter(function (p) { return p.id === id; })[0];
+      if (action === 'add') {
+        showLogin(null, null, { adding: true });
+      } else if (action === 'switch' && chosen) {
+        if (chosen.id === activeID) { showBrowser(); return; }
+        Store.setActive(chosen.id);
+        Store.touch(chosen.id);
+        connect(chosen, true);
+      } else if (action === 'rename' && chosen) {
+        renamingID = chosen.id;
+        var input = document.getElementById('rename-input');
+        input.value = chosen.name || '';
+        input.focus();
+      } else if (action === 'remove' && chosen) {
+        if (confirmID !== chosen.id) {
+          resetConfirm();
+          confirmID = chosen.id;
+          node.textContent = 'Press OK again';
+          confirmTimer = setTimeout(resetConfirm, 3000);
+          return;
+        }
+        Store.removeProvider(chosen.id);
+        if (chosen.id === activeID) {
+          App.session = null;
+          var next = Store.providers()[0];
+          if (next) { Store.setActive(next.id); connect(next, true); }
+          else showLogin('Account removed from this TV.');
+          return;
+        }
+        showAccounts('“' + chosen.name + '” removed from this TV.');
+      }
+    });
+
+    function resetConfirm() {
+      clearTimeout(confirmTimer);
+      if (!confirmID) return;
+      var nodes = document.querySelectorAll('.acc-btn.danger');
+      Array.prototype.forEach.call(nodes, function (n) { n.textContent = 'Remove'; });
+      confirmID = null;
+    }
+
+    App.onTypingDone = function (input) {
+      var name = input.value.trim();
+      if (renamingID && name) {
+        Store.renameProvider(renamingID, name);
+        if (App.session && App.session.profile && App.session.profile.id === renamingID) App.session.profile.name = name;
+        var at = focus.index;
+        showAccounts('Renamed to “' + name + '”.');
+        App.restoreFocus && App.restoreFocus(at);
+      }
+      renamingID = null;
+    };
+
+    var focus = new FormFocus('.accounts .focusable');
+    App.restoreFocus = function (index) { focus.index = clamp(index, 0, focus.items.length - 1); focus.apply(); };
+    // Start on the account being watched (or "Add account" when none is saved).
+    focus.items.forEach(function (node, i) { if (node.classList.contains('active')) focus.index = i; });
+    focus.apply();
+  }
+
   // ---------- Settings ----------
   function showSettings() {
     var s = App.session;
@@ -628,15 +796,16 @@
     var html =
       '<div class="backdrop"></div><div class="settings">' +
       '<div class="brand"><img src="brand.png"><span>veylo</span></div>' +
-      '<h1>Providers & Settings</h1>' +
+      '<h1>Settings</h1>' +
       '<div class="columns"><div>' +
-        '<div class="group"><h3>SAVED PROVIDERS</h3>' +
+        '<div class="group"><h3>ACCOUNTS</h3>' +
           providers.map(function (p) {
             var active = s && s.profile && s.profile.id === p.id;
             return '<div class="item focusable" data-action="switch" data-id="' + esc(p.id) + '">' + esc(p.name) +
               '<span class="value">' + (active ? 'Active' : (p.kind === 'xtream' ? 'Xtream' : 'M3U')) + '</span></div>';
           }).join('') +
-          '<div class="item focusable" data-action="add">＋ Add provider</div>' +
+          '<div class="item focusable" data-action="accounts">Manage accounts<span class="value">' + providers.length + ' saved</span></div>' +
+          '<div class="item focusable" data-action="add">＋ Add account</div>' +
         '</div>' +
       '</div><div>' +
         '<div class="group"><h3>PLAYBACK</h3>' +
@@ -666,7 +835,9 @@
         var chosen = Store.providers().filter(function (p) { return p.id === id; })[0];
         if (chosen) { Store.setActive(chosen.id); Store.touch(chosen.id); connect(chosen, true); }
       } else if (action === 'add') {
-        showLogin();
+        showLogin(null, null, { adding: true });
+      } else if (action === 'accounts') {
+        showAccounts();
       } else if (action === 'format') {
         Store.setFormat(Store.format() === 'ts' ? 'm3u8' : 'ts');
         toast('Applies the next time you connect');

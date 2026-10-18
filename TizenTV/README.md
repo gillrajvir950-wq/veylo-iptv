@@ -18,6 +18,7 @@ Playback uses Samsung's **AVPlay** (MPEG-TS by default, automatic HLS retry).
 | CH+ / CH− | page up / down | previous / next channel |
 | 0–9 | jump to channel number | jump to channel number |
 | Yellow | add / remove favorite | add / remove favorite |
+| Green | accounts (switch / add / rename / remove) | — |
 | ⏯ | play | pause / resume |
 | Back | to categories · twice to exit | back to the list |
 

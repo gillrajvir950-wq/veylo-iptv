@@ -12,16 +12,25 @@
     format: 'veylo.tv.format'
   };
 
+  // Parsed values are cached in memory: lists ask "is this a favorite?" for every row they draw.
+  var cache = {};
+
+  function clone(value) { return value && typeof value === 'object' ? JSON.parse(JSON.stringify(value)) : value; }
+
   function read(key, fallback) {
-    try {
-      var raw = global.localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : fallback;
-    } catch (e) {
-      return fallback;
+    if (!cache.hasOwnProperty(key)) {
+      try {
+        var raw = global.localStorage.getItem(key);
+        cache[key] = raw ? JSON.parse(raw) : undefined;
+      } catch (e) {
+        cache[key] = undefined;
+      }
     }
+    return cache[key] === undefined ? fallback : clone(cache[key]);
   }
 
   function write(key, value) {
+    cache[key] = clone(value);
     try { global.localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* storage full or blocked */ }
   }
 
@@ -68,6 +77,12 @@
       if (Store.activeID() === id) Store.setActive(null);
     },
 
+    renameProvider: function (id, name) {
+      var list = Store.providers();
+      list.forEach(function (p) { if (p.id === id && name) p.name = name; });
+      write(KEYS.providers, list);
+    },
+
     touch: function (id) {
       var list = Store.providers();
       list.forEach(function (p) { if (p.id === id) p.lastUsed = Date.now(); });
@@ -82,7 +97,10 @@
     },
 
     favorites: function () { return read(KEYS.favorites, []); },
-    isFavorite: function (key) { return Store.favorites().indexOf(key) >= 0; },
+    isFavorite: function (key) {
+      var list = cache[KEYS.favorites] === undefined ? Store.favorites() : cache[KEYS.favorites];
+      return !!list && list.indexOf(key) >= 0;
+    },
     toggleFavorite: function (key) {
       var list = Store.favorites();
       var at = list.indexOf(key);

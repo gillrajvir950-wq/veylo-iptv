@@ -65,9 +65,8 @@ html.playing, body.playing, body.playing #app { background: transparent; }
 .login { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: flex; align-items: center; justify-content: center;  }
 .login-card {
   width: 760px; padding: 48px;
-  background: rgba(28, 25, 34, 0.78);
+  background: rgba(24, 21, 30, 0.94);
   border: 1px solid var(--line); border-radius: 36px;
-  backdrop-filter: blur(30px);
 }
 .login-card h1 { font-size: 40px; margin: 34px 0 6px; }
 .login-card p.sub { font-size: 24px; color: var(--muted); margin-bottom: 30px; }
@@ -227,8 +226,8 @@ html.playing, body.playing, body.playing #app { background: transparent; }
 .player .panel {
   position: absolute; left: 70px; right: 70px; bottom: 60px;
   display: flex;  align-items: center; padding: 30px 36px;
-  background: rgba(20, 18, 26, 0.72); border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 34px; backdrop-filter: blur(30px);
+  background: rgba(20, 18, 26, 0.88); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 34px;
 }
 .player .panel .logo { width: 200px; height: 112px; }
 .player .panel .logo img { max-width: 170px; max-height: 90px; }
@@ -264,3 +263,32 @@ html.playing, body.playing, body.playing #app { background: transparent; }
 .player .top > * + * { margin-left: 22px; }
 .player .panel > * + * { margin-left: 34px; }
 .player .panel .epg > * + * { margin-left: 50px; }
+
+/* ---------- Accounts ---------- */
+.accounts { position: absolute; top: 0; right: 0; bottom: 64px; left: 0; padding: 60px 120px 0 120px; overflow: hidden; }
+.accounts h1 { font-size: 52px; margin: 30px 0 8px; }
+.accounts .sub { font-size: 24px; color: var(--muted); margin-bottom: 28px; }
+.accounts .sub.small { font-size: 20px; color: var(--faint); margin-top: 18px; }
+.acc-msg { display: inline-block; font-size: 22px; padding: 10px 22px; border-radius: 20px; background: rgba(48, 209, 88, 0.16); color: #7ee79b; margin-bottom: 22px; }
+.acc-list { max-height: 640px; overflow: hidden; padding: 6px; }
+.acc-row { display: flex; align-items: center; margin-bottom: 16px; }
+.acc-row > * + * { margin-left: 18px; }
+.acc-card {
+  width: 980px; height: 104px; display: flex; align-items: center; padding: 0 30px;
+  border-radius: 26px; background: rgba(36, 32, 44, 0.9); border: 1px solid var(--line);
+}
+.acc-card > * + * { margin-left: 24px; }
+.acc-card .icon { width: 60px; height: 60px; flex: none; border-radius: 18px; display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 800; background: linear-gradient(135deg, var(--accent), var(--accent-deep)); }
+.acc-card.add .icon { background: rgba(255,255,255,0.12); }
+.acc-card .text { flex: 1; min-width: 0; }
+.acc-card .name { font-size: 30px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acc-card .meta { font-size: 20px; color: var(--faint); margin-top: 4px; }
+.acc-card .pill { font-size: 18px; font-weight: 900; letter-spacing: 1.5px; padding: 6px 14px; border-radius: 16px; background: rgba(158, 99, 255, 0.35); color: #fff; }
+.acc-card .go { font-size: 22px; color: var(--faint); }
+.acc-card.active { border-color: rgba(158, 99, 255, 0.7); }
+.acc-btn { height: 72px; padding: 0 30px; display: flex; align-items: center; font-size: 24px; font-weight: 700; border-radius: 22px; background: rgba(255,255,255,0.08); color: var(--muted); }
+.acc-card.focused, .acc-btn.focused { background: #fff; color: #000; transform: none; box-shadow: none; }
+.acc-card.focused .meta, .acc-card.focused .go { color: rgba(0,0,0,0.55); }
+.acc-btn.danger.focused { background: #ff453a; color: #fff; }
+.acc-hints { position: absolute; left: 0; right: 0; bottom: 0; }
+.acc-card.focused .pill { background: var(--accent); color: #fff; }
