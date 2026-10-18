@@ -1,0 +1,42 @@
+name: Vendor mux.js for Samsung TV
+
+# One-off helper: fetches the mux.js TS→MP4 transmuxer (Apache-2.0) from npm and commits
+# TizenTV/js/vendor/mux.min.js. Run manually (workflow_dispatch) when the version changes.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: mux.js version
+        default: '7.0.3'
+
+permissions:
+  contents: write
+
+jobs:
+  vendor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch mux.js
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          npm pack "mux.js@${{ github.event.inputs.version }}" --silent
+          tar xzf mux.js-*.tgz
+          mkdir -p "$GITHUB_WORKSPACE/TizenTV/js/vendor"
+          cp package/dist/mux.min.js "$GITHUB_WORKSPACE/TizenTV/js/vendor/mux.min.js"
+          cp package/LICENSE "$GITHUB_WORKSPACE/TizenTV/js/vendor/mux.LICENSE.txt"
+          node --check "$GITHUB_WORKSPACE/TizenTV/js/vendor/mux.min.js"
+          if grep -cE '\?\.[a-zA-Z_(\[]|\?\?' "$GITHUB_WORKSPACE/TizenTV/js/vendor/mux.min.js"; then
+            echo "::warning title=mux.js::modern syntax found (check Tizen 6 compatibility)"
+          fi
+          echo "::notice title=mux.js::vendored $(wc -c < "$GITHUB_WORKSPACE/TizenTV/js/vendor/mux.min.js") bytes"
+      - name: Commit
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add TizenTV/js/vendor
+          git diff --cached --quiet && { echo "no change"; exit 0; }
+          git commit -m "Vendor mux.js ${{ github.event.inputs.version }} for the Samsung TV engine"
+          git push
