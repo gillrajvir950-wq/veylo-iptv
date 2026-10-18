@@ -492,11 +492,13 @@ html.playing, body.playing, body.playing #app { background: transparent; }
 /* Live preview: the page is see-through where the picture is (Samsung's player draws behind it). */
 html.previewing, html.previewing body, html.previewing #app { background: transparent; }
 html.previewing .backdrop { display: none; }
-html.previewing .preview { background: rgba(16, 14, 20, 0.0); }
-html.previewing #preview .logo { background: transparent; border-color: rgba(255,255,255,0.25); }
+/* Nothing over the picture may be its own GPU layer, rounded or clipped: the TV draws video on a
+   plane behind the page and such layers come out opaque (audio but a black box). */
+html.previewing .preview { background: transparent; border-color: transparent; will-change: auto; transform: none; }
+html.previewing #preview .logo { background: transparent; border: 0; border-radius: 0; overflow: visible; box-shadow: none; }
 html.previewing #preview .logo > * { visibility: hidden; }
-html.previewing #preview .logo.preview-wait { background: rgba(0,0,0,0.0); }
-.engine-video.preview-video { z-index: 3; border-radius: 22px; background: #000; }
+html.previewing .browser, html.previewing .content, html.previewing .content-body, html.previewing .details { background: transparent; }
+.engine-video.preview-video { z-index: 3; }
 
 /* ---------- Guide inside Live TV ---------- */
 .key.blue { background: #0a84ff; }
@@ -511,3 +513,4 @@ html.previewing #preview .logo.preview-wait { background: rgba(0,0,0,0.0); }
 .nn-left { color: var(--faint); }
 .nn-bar { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.15); margin-top: 7px; width: 70%; overflow: hidden; }
 .nn-bar > div { height: 100%; background: var(--accent); }
+.preview-label { font-size: 17px; color: var(--faint); margin-top: 8px; height: 22px; }

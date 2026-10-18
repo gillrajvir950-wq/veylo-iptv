@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.2.5';
+  var VERSION = '0.2.6';
 
   // ---------- Keys ----------
   var K = {
@@ -450,6 +450,9 @@
         if (!Preview.active) return;
         var node = document.querySelector('#preview .logo');
         if (node) node.classList.toggle('preview-wait', state !== 'playing');
+        var label = document.getElementById('preview-label');
+        var a = Player.attempt && Player.attempt();
+        if (label) label.textContent = state === 'playing' && a ? 'Preview · ' + a.agent.label : state === 'error' ? '' : 'Preview loading…';
         if (state === 'error') stopPreview();
       };
       Player.play(channel.url, channel.altURL, {
@@ -996,7 +999,7 @@
       return;
     }
     schedulePreviewVideo(channel);
-    box.innerHTML = logoHTML(channel) +
+    box.innerHTML = logoHTML(channel) + '<div class="preview-label" id="preview-label"></div>' +
       '<h2>' + esc(channel.title) + '</h2>' +
       '<div class="cat-name">' + esc(API.title(channel.category)) + (channel.quality ? ' · ' + channel.quality : '') + '</div>' +
       '<div class="epg" id="preview-epg"></div>';
