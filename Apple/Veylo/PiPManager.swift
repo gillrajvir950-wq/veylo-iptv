@@ -21,6 +21,7 @@ final class PiPManager: NSObject, ObservableObject {
     private var controller: AVPictureInPictureController?
     private var statusObservation: NSKeyValueObservation?
     private var possibleObservation: NSKeyValueObservation?
+    private var displayObservation: NSKeyValueObservation?
     private var timeout: DispatchWorkItem?
     private var onEnd: ((_ failed: Bool) -> Void)?
 
@@ -70,6 +71,10 @@ final class PiPManager: NSObject, ObservableObject {
         possibleObservation = controller.observe(\.isPictureInPicturePossible, options: [.new]) { [weak self] _, _ in
             DispatchQueue.main.async { self?.startIfPossible() }
         }
+        // Start PiP only once the first video frame can be shown; starting earlier left a black PiP window.
+        displayObservation = playerLayer.observe(\.isReadyForDisplay, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async { self?.startIfPossible() }
+        }
         let timeout = DispatchWorkItem { [weak self] in
             guard let self, self.state == .preparing else { return }
             self.finish(failed: true)
@@ -89,7 +94,7 @@ final class PiPManager: NSObject, ObservableObject {
 
     private func startIfPossible() {
         guard state == .preparing, let controller, controller.isPictureInPicturePossible,
-              player?.currentItem?.status == .readyToPlay else { return }
+              player?.currentItem?.status == .readyToPlay, playerLayer.isReadyForDisplay else { return }
         controller.startPictureInPicture()
     }
 
@@ -104,6 +109,7 @@ final class PiPManager: NSObject, ObservableObject {
         timeout = nil
         statusObservation = nil
         possibleObservation = nil
+        displayObservation = nil
         player?.pause()
         playerLayer.player = nil
         player = nil
