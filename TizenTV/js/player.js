@@ -1,6 +1,9 @@
 /* Veylo TV — video playback.
  * On the Samsung TV this uses Samsung's AVPlay (webapis.avplay), which plays MPEG-TS and HLS.
- * In a normal browser (for testing) it falls back to an HTML5 <video>. */
+ * In a normal browser (for testing) it falls back to an HTML5 <video>.
+ *
+ * Providers usually allow only one or two connections and keep counting a closed stream for
+ * a while, so a refused connection is retried with growing pauses instead of failing at once. */
 (function (global) {
   'use strict';
 
@@ -8,28 +11,39 @@
     return !!(global.webapis && global.webapis.avplay);
   }
 
+  /** Seconds to wait before each "provider busy" retry (after TS and HLS were both tried once). */
+  var BUSY_DELAYS = [4, 8, 12, 16];
+  /** An attempt that hasn't started playing within this time counts as failed. */
+  var ATTEMPT_TIMEOUT = 12000;
+
   var Player = {
-    /** Called with 'loading' | 'playing' | 'error' | 'ended'. */
+    /** Called with ('loading' | 'playing' | 'error' | 'ended' | 'retry', info). */
     onState: function () {},
     current: null,
-    triedAlt: false,
-    retries: 0,
     retryTimer: null,
+    attemptTimer: null,
     /** Last AVPlay error name (shown small on the error screen to help diagnose). */
     lastError: '',
+    /** True once the alternate format (TS ↔ HLS) started faster this session; it is then tried first. */
+    preferAlt: false,
 
-    /** Plays `url`; if it fails once, tries `altURL` (TS ↔ HLS). */
+    /** Plays `url`; on failure tries `altURL` (TS ↔ HLS), then retries while the provider is busy. */
     play: function (url, altURL) {
       Player.stop();
-      Player.current = { url: url, alt: altURL || '' };
-      Player.triedAlt = false;
-      Player.retries = 0;
+      var first = url, second = altURL || '';
+      if (Player.preferAlt && second) { first = second; second = url; }
+      Player.current = { first: first, second: second, step: 0, busy: 0 };
       Player.lastError = '';
-      Player.open(url);
+      Player.open(first);
     },
 
     open: function (url) {
       Player.onState('loading');
+      var current = Player.current;
+      clearTimeout(Player.attemptTimer);
+      Player.attemptTimer = setTimeout(function () {
+        if (Player.current === current && !current.playing) Player.fail('TIMEOUT');
+      }, ATTEMPT_TIMEOUT);
       if (hasAVPlay()) {
         Player.openAVPlay(url);
       } else {
@@ -37,34 +51,44 @@
       }
     },
 
-    retryAlternate: function () {
+    started: function () {
       var current = Player.current;
-      if (current && current.alt && !Player.triedAlt) {
-        Player.triedAlt = true;
-        Player.stop(true);
-        Player.open(current.alt);
-        return true;
+      if (!current) return;
+      clearTimeout(Player.attemptTimer);
+      if (!current.playing) {
+        current.playing = true;
+        // The second format worked on its first try while the first failed: start with it next time.
+        if (current.step === 1 && current.busy === 0 && current.second) Player.preferAlt = !Player.preferAlt;
       }
-      return false;
+      Player.onState('playing');
     },
 
-    /** A failure right after the previous stream closed is often the provider still counting
-     *  the old connection — wait a moment and try the same URL once more before switching format. */
+    /** step 0 = first format, step 1 = other format, then BUSY_DELAYS retries with the first format. */
     fail: function (reason) {
       if (reason) Player.lastError = String(reason);
       var current = Player.current;
       if (!current) return;
-      if (Player.retries < 1) {
-        Player.retries += 1;
-        Player.stop(true);
-        Player.onState('loading');
-        clearTimeout(Player.retryTimer);
-        Player.retryTimer = setTimeout(function () {
-          if (Player.current === current) Player.open(Player.triedAlt ? current.alt : current.url);
-        }, 3000);
+      clearTimeout(Player.attemptTimer);
+      Player.stop(true);
+      if (current.step === 0 && current.second) {
+        current.step = 1;
+        Player.open(current.second);
         return;
       }
-      if (!Player.retryAlternate()) Player.onState('error');
+      if (current.busy < BUSY_DELAYS.length) {
+        var seconds = BUSY_DELAYS[current.busy];
+        current.busy += 1;
+        current.step = 2;
+        Player.onState('retry', { attempt: current.busy, total: BUSY_DELAYS.length, seconds: seconds });
+        clearTimeout(Player.retryTimer);
+        Player.retryTimer = setTimeout(function () {
+          if (Player.current !== current) return;
+          // Alternate formats between busy retries.
+          Player.open(current.busy % 2 === 1 || !current.second ? current.first : current.second);
+        }, seconds * 1000);
+        return;
+      }
+      Player.onState('error');
     },
 
     openAVPlay: function (url) {
@@ -77,7 +101,7 @@
         av.open(url);
         av.setListener({
           onbufferingstart: function () { if (live()) Player.onState('loading'); },
-          onbufferingcomplete: function () { if (live()) Player.onState('playing'); },
+          onbufferingcomplete: function () { if (live()) Player.started(); },
           onstreamcompleted: function () { if (live()) Player.onState('ended'); },
           onerror: function (type) { if (live()) Player.fail(type || 'PLAYER_ERROR'); },
           onevent: function () {}
@@ -87,13 +111,19 @@
         if (agent) {
           try { av.setStreamingProperty('USER_AGENT', agent); } catch (e) { /* not supported on this model */ }
         }
+        // Start after a short buffer instead of the player's long default.
+        try {
+          av.setBufferingParam('PLAYER_BUFFER_FOR_PLAY', 'PLAYER_BUFFER_SIZE_IN_SECOND', 3);
+          av.setBufferingParam('PLAYER_BUFFER_FOR_RESUME', 'PLAYER_BUFFER_SIZE_IN_SECOND', 5);
+        } catch (e) { /* older firmware */ }
+        try { av.setTimeoutForBuffering(10); } catch (e) { /* older firmware */ }
         av.setDisplayRect(0, 0, 1920, 1080);
         try { av.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX'); } catch (e) { /* older TVs */ }
         av.prepareAsync(function () {
           if (!live()) return;
           try {
             av.play();
-            Player.onState('playing');
+            Player.started();
           } catch (e) { Player.fail('PLAY_FAILED'); }
         }, function (error) { if (live()) Player.fail((error && (error.name || error.message)) || 'PREPARE_FAILED'); });
       } catch (e) {
@@ -104,11 +134,14 @@
     openHTML5: function (url) {
       var video = document.getElementById('html5-video');
       if (!video) return Player.onState('error');
+      Player.gen = (Player.gen || 0) + 1;
+      var gen = Player.gen;
+      function live() { return gen === Player.gen; }
       video.style.display = 'block';
-      video.onplaying = function () { Player.onState('playing'); };
-      video.onwaiting = function () { Player.onState('loading'); };
-      video.onerror = function () { Player.fail(); };
-      video.onended = function () { Player.onState('ended'); };
+      video.onplaying = function () { if (live()) Player.started(); };
+      video.onwaiting = function () { if (live()) Player.onState('loading'); };
+      video.onerror = function () { if (live()) Player.fail('MEDIA_ERROR'); };
+      video.onended = function () { if (live()) Player.onState('ended'); };
       video.src = url;
       var started = video.play();
       if (started && started.catch) started.catch(function () { /* autoplay or format */ });
@@ -130,9 +163,12 @@
       return true;
     },
 
-    /** `keepCurrent` = stopping only to try the alternate stream. */
+    /** `keepCurrent` = stopping only to try again (other format or busy retry). */
     stop: function (keepCurrent) {
-      if (!keepCurrent) clearTimeout(Player.retryTimer);
+      if (!keepCurrent) {
+        clearTimeout(Player.retryTimer);
+        clearTimeout(Player.attemptTimer);
+      }
       Player.gen = (Player.gen || 0) + 1;
       if (hasAVPlay()) {
         try {
@@ -144,6 +180,7 @@
       } else {
         var video = document.getElementById('html5-video');
         if (video) {
+          video.onerror = null;
           video.pause();
           video.removeAttribute('src');
           video.load();

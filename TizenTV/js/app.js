@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.1.4';
+  var VERSION = '0.1.5';
 
   // ---------- Keys ----------
   var K = {
@@ -902,17 +902,27 @@
     paused: false,
     state: 'loading',
 
-    tune: function (index) {
+    /** Zapping shows the channel at once but only opens the stream once the viewer rests on it
+     *  (~0.7 s): every opened stream counts as a provider connection. */
+    tune: function (index, immediate) {
       var count = this.lineup.length;
       if (!count) return;
       this.index = (index + count) % count;
       var channel = this.lineup[this.index];
       this.paused = false;
-      Store.addRecent(channel.key);
-      Player.play(channel.url, channel.altURL);
+      Player.stop();   // frees the provider connection right away
+      this.setState('loading');
       this.renderInfo();
       this.showOverlay();
-      this.loadEPG();
+      clearTimeout(this.tuneTimer);
+      var self = this;
+      var start = function () {
+        if (self.lineup[self.index] !== channel || App.screen !== 'player') return;
+        Store.addRecent(channel.key);
+        Player.play(channel.url, channel.altURL);
+        self.loadEPG();
+      };
+      if (immediate) start(); else this.tuneTimer = setTimeout(start, 700);
     },
 
     renderInfo: function () {
@@ -943,12 +953,17 @@
       }, 300);
     },
 
-    setState: function (state) {
+    setState: function (state, info) {
       this.state = state;
       var box = document.getElementById('player-status');
       if (!box) return;
       if (state === 'loading') {
         box.innerHTML = '<div class="spinner"></div>Loading…';
+      } else if (state === 'retry') {
+        box.innerHTML = '<div class="spinner"></div>Provider is busy — trying again in ' + info.seconds + ' s (' + info.attempt + '/' + info.total + ')' +
+          '<div style="font-size:22px;color:rgba(255,255,255,.6);margin-top:12px">Usually the previous channel is still counted for a moment.</div>' +
+          '<div id="player-reason" style="font-size:22px;color:#ffd60a;margin-top:12px"></div>';
+        this.checkConnections();
       } else if (state === 'error') {
         var code = Player.lastError ? '<div style="font-size:18px;color:rgba(255,255,255,.4);margin-top:14px">' + esc(Player.lastError) + '</div>' : '';
         box.innerHTML = 'This channel isn’t playing right now.<br><span style="font-size:24px;color:rgba(255,255,255,.6)">Press OK to retry · ▲▼ for another channel</span>' +
@@ -968,7 +983,8 @@
       if (!client || !client.authenticate) return;
       var channel = this.lineup[this.index];
       client.authenticate().then(function (acc) {
-        if (PlayerScreen.lineup[PlayerScreen.index] !== channel || PlayerScreen.state !== 'error') return;
+        if (PlayerScreen.lineup[PlayerScreen.index] !== channel ||
+            (PlayerScreen.state !== 'error' && PlayerScreen.state !== 'retry')) return;
         App.session.account = acc;
         var box = document.getElementById('player-reason');
         if (!box) return;
@@ -977,6 +993,9 @@
         } else if (acc.max && acc.active >= acc.max) {
           box.textContent = 'All ' + acc.max + ' connection' + (acc.max === 1 ? '' : 's') +
             ' of your plan are in use. Close Veylo on other devices, wait a minute and press OK.';
+        } else if (acc.max) {
+          box.style.color = 'rgba(255,255,255,.55)';
+          box.textContent = 'Connections: ' + acc.active + ' of ' + acc.max + ' in use';
         }
       }).catch(function () {});
     },
@@ -1017,14 +1036,15 @@
         '<div class="status" id="player-status"></div>' +
       '</div>';
     setScreen('player', html, playerKey);
-    Player.onState = function (state) { PlayerScreen.setState(state); };
+    Player.onState = function (state, info) { PlayerScreen.setState(state, info); };
     PlayerScreen.tick();
     clearInterval(PlayerScreen.clockTimer);
     PlayerScreen.clockTimer = setInterval(PlayerScreen.tick, 15000);
-    PlayerScreen.tune(index);
+    PlayerScreen.tune(index, true);
   }
 
   function leavePlayer() {
+    clearTimeout(PlayerScreen.tuneTimer);
     Player.stop();
     clearInterval(PlayerScreen.clockTimer);
     clearTimeout(PlayerScreen.hideTimer);
@@ -1046,7 +1066,7 @@
       case K.DOWN: case K.CH_DOWN:
         PlayerScreen.tune(PlayerScreen.index + 1); return;
       case K.ENTER: case K.INFO: case K.LEFT: case K.RIGHT:
-        if (PlayerScreen.state === 'error' && key === K.ENTER) { PlayerScreen.tune(PlayerScreen.index); return; }
+        if ((PlayerScreen.state === 'error' || PlayerScreen.state === 'retry') && key === K.ENTER) { PlayerScreen.tune(PlayerScreen.index, true); return; }
         var overlay = document.getElementById('player-overlay');
         if (overlay && !overlay.classList.contains('hidden') && key === K.ENTER) overlay.classList.add('hidden');
         else PlayerScreen.showOverlay();
