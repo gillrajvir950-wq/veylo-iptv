@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.1.5';
+  var VERSION = '0.1.6';
 
   // ---------- Keys ----------
   var K = {
@@ -465,7 +465,7 @@
       '<div class="backdrop"></div>' +
       '<div class="browser">' +
         '<div class="sidebar">' +
-          '<div class="brand"><img src="brand.png"><span>veylo</span></div>' +
+          '<div class="brand"><img src="brand.png"><span>veylo</span><em class="build">v' + VERSION + '</em></div>' +
           '<input class="search-input" id="search-input" type="text" autocomplete="off">' +
           '<div class="vlist" id="cats"><div class="vlist-inner"></div></div>' +
         '</div>' +
@@ -957,8 +957,16 @@
       this.state = state;
       var box = document.getElementById('player-status');
       if (!box) return;
+      clearInterval(this.loadTimer);
       if (state === 'loading') {
-        box.innerHTML = '<div class="spinner"></div>Loading…';
+        box.innerHTML = '<div class="spinner"></div>Loading…<div id="player-wait" style="font-size:22px;color:rgba(255,255,255,.55);margin-top:12px"></div>';
+        var wait = function () {
+          var c = Player.current, node = document.getElementById('player-wait');
+          if (!node || !c || !c.since) return;
+          node.textContent = c.format + ' · ' + Math.round((Date.now() - c.since) / 1000) + ' s';
+        };
+        wait();
+        this.loadTimer = setInterval(wait, 1000);
       } else if (state === 'retry') {
         box.innerHTML = '<div class="spinner"></div>Provider is busy — trying again in ' + info.seconds + ' s (' + info.attempt + '/' + info.total + ')' +
           '<div style="font-size:22px;color:rgba(255,255,255,.6);margin-top:12px">Usually the previous channel is still counted for a moment.</div>' +
@@ -1023,7 +1031,7 @@
       '<div class="player">' +
         '<div id="player-overlay">' +
           '<div class="shade-top"></div><div class="shade-bottom"></div>' +
-          '<div class="top"><span class="live-pill">● LIVE</span><span class="clock" id="player-clock"></span></div>' +
+          '<div class="top"><span class="live-pill">● LIVE</span><span class="build">v' + VERSION + '</span><span class="clock" id="player-clock"></span></div>' +
           '<div class="panel" id="player-panel"></div>' +
           '<div class="hints">' +
             '<span><span class="key">▲▼</span>Channel</span>' +
@@ -1045,6 +1053,7 @@
 
   function leavePlayer() {
     clearTimeout(PlayerScreen.tuneTimer);
+    clearInterval(PlayerScreen.loadTimer);
     Player.stop();
     clearInterval(PlayerScreen.clockTimer);
     clearTimeout(PlayerScreen.hideTimer);

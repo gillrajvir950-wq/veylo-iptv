@@ -13,8 +13,9 @@
 
   /** Seconds to wait before each "provider busy" retry (after TS and HLS were both tried once). */
   var BUSY_DELAYS = [4, 8, 12, 16];
-  /** An attempt that hasn't started playing within this time counts as failed. */
-  var ATTEMPT_TIMEOUT = 12000;
+  /** Safety net only: an attempt still not playing after this long counts as failed.
+   *  (0.1.5 used 12 s — this provider often needs longer, so every stream was cut off.) */
+  var ATTEMPT_TIMEOUT = 60000;
 
   var Player = {
     /** Called with ('loading' | 'playing' | 'error' | 'ended' | 'retry', info). */
@@ -38,8 +39,13 @@
     },
 
     open: function (url) {
-      Player.onState('loading');
       var current = Player.current;
+      if (current) {
+        current.url = url;
+        current.since = Date.now();
+        current.format = /\.m3u8(\?|$)/i.test(url) ? 'HLS' : 'TS';
+      }
+      Player.onState('loading');
       clearTimeout(Player.attemptTimer);
       Player.attemptTimer = setTimeout(function () {
         if (Player.current === current && !current.playing) Player.fail('TIMEOUT');
@@ -111,12 +117,6 @@
         if (agent) {
           try { av.setStreamingProperty('USER_AGENT', agent); } catch (e) { /* not supported on this model */ }
         }
-        // Start after a short buffer instead of the player's long default.
-        try {
-          av.setBufferingParam('PLAYER_BUFFER_FOR_PLAY', 'PLAYER_BUFFER_SIZE_IN_SECOND', 3);
-          av.setBufferingParam('PLAYER_BUFFER_FOR_RESUME', 'PLAYER_BUFFER_SIZE_IN_SECOND', 5);
-        } catch (e) { /* older firmware */ }
-        try { av.setTimeoutForBuffering(10); } catch (e) { /* older firmware */ }
         av.setDisplayRect(0, 0, 1920, 1080);
         try { av.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX'); } catch (e) { /* older TVs */ }
         av.prepareAsync(function () {
