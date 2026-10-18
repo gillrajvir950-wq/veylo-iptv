@@ -5,7 +5,8 @@
   'use strict';
 
   var FRESH = 12 * 3600 * 1000;
-  var MAX_BYTES = 160 * 1024 * 1024;   // uncompressed guide size the TV can handle
+  var MAX_BYTES = 120 * 1024 * 1024;   // uncompressed guide size the TV can handle
+  var BATCH = 4000;                     // programmes parsed before giving the TV a breather
 
   var X = { status: 'none', message: '', byId: null, byName: null, session: null, count: 0, updated: 0 };
 
@@ -55,7 +56,8 @@
     return new TextDecoder('utf-8').decode(bytes);
   }
 
-  /** Index of the programmes for the playlist's channels. */
+  /** Index of the programmes for the playlist's channels. Works in batches (setTimeout between
+   *  them) so a big guide doesn't freeze the remote for seconds. Resolves {byId, nameToId}. */
   function parse(text, channels) {
     var wantedIds = {}, wantedNames = {};
     channels.forEach(function (c) {
@@ -77,18 +79,26 @@
     }
     var from = Date.now() - 2 * 3600000, to = Date.now() + 36 * 3600000;
     var byId = {};
-    var reProg = /<programme\b([^>]*)>([\s\S]*?)<\/programme>/g, p;
-    while ((p = reProg.exec(text))) {
-      var ch = entities(attr(p[1], 'channel'));
-      if (!keep[ch]) continue;
-      var start = xmltvTime(attr(p[1], 'start')), end = xmltvTime(attr(p[1], 'stop'));
-      if (!(end > from) || !(start < to)) continue;
-      var title = /<title[^>]*>([\s\S]*?)<\/title>/.exec(p[2]);
-      var desc = /<desc[^>]*>([\s\S]*?)<\/desc>/.exec(p[2]);
-      (byId[ch] = byId[ch] || []).push({ title: entities(title ? title[1] : '').trim(), desc: entities(desc ? desc[1] : '').trim(), start: start, end: end });
-    }
-    Object.keys(byId).forEach(function (k) { byId[k].sort(function (a, b) { return a.start - b.start; }); });
-    return { byId: byId, nameToId: nameToId };
+    var reProg = /<programme\b([^>]*)>([\s\S]*?)<\/programme>/g;
+    return new Promise(function (resolve) {
+      function batch() {
+        var p, n = 0;
+        while (n < BATCH && (p = reProg.exec(text))) {
+          n += 1;
+          var ch = entities(attr(p[1], 'channel'));
+          if (!keep[ch]) continue;
+          var start = xmltvTime(attr(p[1], 'start')), end = xmltvTime(attr(p[1], 'stop'));
+          if (!(end > from) || !(start < to)) continue;
+          var title = /<title[^>]*>([\s\S]*?)<\/title>/.exec(p[2]);
+          var desc = /<desc[^>]*>([\s\S]*?)<\/desc>/.exec(p[2]);
+          (byId[ch] = byId[ch] || []).push({ title: entities(title ? title[1] : '').trim(), desc: entities(desc ? desc[1] : '').trim(), start: start, end: end });
+        }
+        if (n === BATCH) { setTimeout(batch, 0); return; }
+        Object.keys(byId).forEach(function (k) { byId[k].sort(function (a, b) { return a.start - b.start; }); });
+        resolve({ byId: byId, nameToId: nameToId });
+      }
+      batch();
+    });
   }
 
   function apply(index, session) {
@@ -119,11 +129,14 @@
       if (saved && saved.url === url) apply(saved, session);   // old copy while the new one loads
       return global.VeyloAPI.fetchBytes(url, 180000).then(function (bytes) {
         if (X.session !== session) return;
-        var index = parse(decode(bytes), session.channels);
-        index.t = Date.now();
-        index.url = url;
-        apply(index, session);
-        if (cache) cache.put(key, index);
+        // All channels, also the locked ones (their guide is needed once the PIN is entered).
+        return parse(decode(bytes), session.allChannels || session.channels).then(function (index) {
+          if (X.session !== session) return;
+          index.t = Date.now();
+          index.url = url;
+          apply(index, session);
+          if (cache) cache.put(key, index);
+        });
       });
     }).catch(function (error) {
       if (X.session !== session) return;

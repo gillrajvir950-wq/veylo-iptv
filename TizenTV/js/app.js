@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.2.4';
+  var VERSION = '0.2.5';
 
   // ---------- Keys ----------
   var K = {
@@ -714,7 +714,7 @@
   function startLastChannel() {
     var key = Store.lastChannel();
     var channel = key && App.byKey[key];
-    if (!channel) return;
+    if (!channel || isHidden(channel)) return;   // a locked channel never starts without the PIN
     var cat = App.session.categories.filter(function (c) { return c.channels.indexOf(channel) >= 0; })[0];
     var lineup = cat ? cat.channels : App.session.channels;
     Browser.focus = 'list';
@@ -1207,7 +1207,10 @@
     setScreen('accounts', html, function (key) {
       if (key === K.UP || key === K.DOWN || key === K.LEFT || key === K.RIGHT) { focus.move(key); resetConfirm(); return; }
       if (key === K.BACK || key === K.ESC || key === K.GREEN) {
-        if (App.session) showBrowser(); else showLogin();
+        var back = App.accountsBack;
+        App.accountsBack = null;
+        if (back && App.session) back();
+        else if (App.session) showBrowser(); else showLogin();
         return;
       }
       if (key !== K.ENTER) return false;
@@ -1814,7 +1817,8 @@
     logoHTML: logoHTML,
     epgHTML: epgHTML,
     toggleFavorite: toggleFavorite,
-    showAccounts: function () { showAccounts(); }
+    /** `back`: where BACK returns (Home); default the channel browser. */
+    showAccounts: function (back) { App.accountsBack = back || null; showAccounts(); }
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();

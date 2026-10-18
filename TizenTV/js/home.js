@@ -129,14 +129,14 @@
     var top = Math.max(0, shelfNode.offsetTop - 30);
     box.style.transform = 'translate3d(0,' + (-top) + 'px,0)';
     var cards = shelfNode.querySelectorAll('.hcard');
-    var col = clamp(H.cols[H.row] || 0, 0, cards.length - 1);
-    H.cols[H.row] = col;
+    var col = clamp(H.cols[colKey(H.row)] || 0, 0, cards.length - 1);
+    H.cols[colKey(H.row)] = col;
     if (H.focus === 'shelves' && cards[col]) cards[col].classList.add('focused');
     // Each shelf scrolls sideways so its own position stays visible.
     Array.prototype.forEach.call(shelves, function (node, r) {
       var inner = node.querySelector('.shelf-inner');
       var list = node.querySelectorAll('.hcard');
-      var c = clamp(H.cols[r] || 0, 0, list.length - 1);
+      var c = clamp(H.cols[colKey(r)] || 0, 0, list.length - 1);
       var card = list[c];
       var shift = card ? Math.max(0, card.offsetLeft - 40) : 0;
       var maxShift = Math.max(0, inner.scrollWidth - node.clientWidth + 60);
@@ -144,9 +144,12 @@
     });
   }
 
+  /** Card positions are kept per shelf (shelves move when movie rows arrive). */
+  function colKey(row) { var sh = H.shelves[row]; return sh ? sh.id : row; }
+
   function current() {
     var shelf = H.shelves[H.row];
-    return shelf ? { shelf: shelf, entry: shelf.items[H.cols[H.row] || 0] } : null;
+    return shelf ? { shelf: shelf, entry: shelf.items[H.cols[colKey(H.row)] || 0] } : null;
   }
 
   function open(target) {
@@ -177,9 +180,9 @@
         if (H.row < H.shelves.length - 1) { H.row += 1; apply(); }
         return;
       case K.LEFT:
-        H.cols[H.row] = Math.max(0, (H.cols[H.row] || 0) - 1); apply(); return;
+        H.cols[colKey(H.row)] = Math.max(0, (H.cols[colKey(H.row)] || 0) - 1); apply(); return;
       case K.RIGHT:
-        H.cols[H.row] = Math.min(shelf.items.length - 1, (H.cols[H.row] || 0) + 1); apply(); return;
+        H.cols[colKey(H.row)] = Math.min(shelf.items.length - 1, (H.cols[colKey(H.row)] || 0) + 1); apply(); return;
       case K.ENTER: case K.PLAY: case K.PLAY_PAUSE:
         var t = current();
         if (t) open(t);
@@ -187,7 +190,7 @@
       case K.BACK: case K.ESC:
         H.focus = 'nav'; apply(); UI.navFocus(true); return;
       case K.GREEN:
-        UI.showAccounts(); return;
+        UI.showAccounts(show); return;
       default:
         return false;
     }
