@@ -57,6 +57,11 @@
           onerror: function () { Player.fail(); },
           onevent: function () {}
         });
+        // Providers that block the TV's browser engine get the same player identity as the API calls.
+        var agent = global.VeyloAPI && global.VeyloAPI.state && global.VeyloAPI.state.userAgent;
+        if (agent) {
+          try { av.setStreamingProperty('USER_AGENT', agent); } catch (e) { /* not supported on this model */ }
+        }
         av.setDisplayRect(0, 0, 1920, 1080);
         try { av.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX'); } catch (e) { /* older TVs */ }
         av.prepareAsync(function () {

@@ -5,18 +5,144 @@
 
   var TIMEOUT = 30000;
 
-  function fetchText(url, timeout) {
+  /** Identities tried when a provider refuses the TV's own browser engine (e.g. HTTP 451 / 884 / 403). */
+  var AGENTS = ['VLC/3.0.21 LibVLC/3.0.21', 'IPTVSmartersPro', 'okhttp/4.12.0'];
+  /** Hosts known to block the web engine → go straight to the native download path. */
+  var blockedHosts = {};
+  /** The identity that worked for a blocking provider (also given to the video player). */
+  var State = { userAgent: '' };
+
+  function hostKey(url) {
+    var match = /^[a-z]+:\/\/([^\/?#]+)/i.exec(url || '');
+    return match ? match[1].toLowerCase() : '';
+  }
+
+  function isBlockStatus(status) {
+    return status === 451 || status === 884 || status === 403 || status === 406 || status === 456 ||
+      status === 458 || status === 512 || status === 513 || (status >= 880 && status <= 899);
+  }
+
+  function hasNativeDownload() {
+    return !!(global.tizen && global.tizen.download && global.tizen.DownloadRequest && global.tizen.filesystem);
+  }
+
+  function xhrText(url, timeout) {
     return new Promise(function (resolve, reject) {
       var xhr = new XMLHttpRequest();
       xhr.open('GET', url, true);
       xhr.timeout = timeout || TIMEOUT;
       xhr.onload = function () {
-        if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.responseText);
-        else reject(new Error('HTTP status ' + xhr.status));
+        if (xhr.status >= 200 && xhr.status < 300) return resolve(xhr.responseText);
+        var error = new Error('HTTP status ' + xhr.status);
+        error.status = xhr.status;
+        reject(error);
       };
-      xhr.onerror = function () { reject(new Error('Couldn’t reach the provider. Check the address and your internet.')); };
-      xhr.ontimeout = function () { reject(new Error('The provider took too long to answer.')); };
+      xhr.onerror = function () {
+        var error = new Error('Couldn’t reach the provider. Check the address and your internet.');
+        error.status = 0;
+        reject(error);
+      };
+      xhr.ontimeout = function () {
+        var error = new Error('The provider took too long to answer.');
+        error.status = -1;
+        reject(error);
+      };
       xhr.send();
+    });
+  }
+
+  /** Reads a file the Download API saved in the app's private temp folder. */
+  function readDownloaded(name) {
+    return new Promise(function (resolve, reject) {
+      var fs = global.tizen.filesystem;
+      var virtualPath = 'wgt-private-tmp/' + name;
+      try {
+        if (fs.openFile) {
+          var handle = fs.openFile(virtualPath, 'r');
+          var text = handle.readString();
+          handle.close();
+          try { fs.deleteFile(virtualPath); } catch (e) { /* temp folder is cleaned anyway */ }
+          return resolve(text);
+        }
+      } catch (e) { /* fall back to the older API below */ }
+      fs.resolve(virtualPath, function (file) {
+        file.readAsText(function (text) { resolve(text); }, function (err) { reject(err); }, 'UTF-8');
+      }, function (err) { reject(err); }, 'r');
+    });
+  }
+
+  /** Samsung's native downloader: no browser Origin and a chosen User-Agent. */
+  function nativeText(url, agent, timeout) {
+    return new Promise(function (resolve, reject) {
+      var name = 'veylo-' + Date.now() + '-' + Math.floor(Math.random() * 1e6) + '.txt';
+      var finished = false;
+      var timer = setTimeout(function () {
+        if (finished) return;
+        finished = true;
+        try { global.tizen.download.cancel(id); } catch (e) {}
+        reject(new Error('The provider took too long to answer.'));
+      }, timeout || 90000);
+      var id;
+      try {
+        var request = new global.tizen.DownloadRequest(url, 'wgt-private-tmp', name, 'ALL',
+          { 'User-Agent': agent, 'Accept': '*/*' });
+        id = global.tizen.download.start(request, {
+          onprogress: function () {},
+          onpaused: function () {},
+          oncanceled: function () {
+            if (finished) return;
+            finished = true; clearTimeout(timer);
+            reject(new Error('Download cancelled.'));
+          },
+          oncompleted: function () {
+            if (finished) return;
+            finished = true; clearTimeout(timer);
+            readDownloaded(name).then(resolve, function () { reject(new Error('Couldn’t read the provider’s answer.')); });
+          },
+          onfailed: function (downloadId, error) {
+            if (finished) return;
+            finished = true; clearTimeout(timer);
+            reject(new Error('Provider refused the request' + (error && error.message ? ' (' + error.message + ')' : '') + '.'));
+          }
+        });
+      } catch (e) {
+        finished = true; clearTimeout(timer);
+        reject(e);
+      }
+    });
+  }
+
+  /** Native download with each identity in turn until one is accepted. */
+  function nativeWithAgents(url, timeout) {
+    var agents = State.userAgent ? [State.userAgent].concat(AGENTS.filter(function (a) { return a !== State.userAgent; })) : AGENTS;
+    var index = 0;
+    function attempt() {
+      var agent = agents[index];
+      return nativeText(url, agent, timeout).then(function (text) {
+        State.userAgent = agent;
+        return text;
+      }, function (error) {
+        index += 1;
+        if (index < agents.length) return attempt();
+        throw error;
+      });
+    }
+    return attempt();
+  }
+
+  /** Web request first; if the provider blocks the TV browser engine, retry natively as a known player. */
+  function fetchText(url, timeout) {
+    var host = hostKey(url);
+    if (blockedHosts[host] && hasNativeDownload()) return nativeWithAgents(url, timeout);
+    return xhrText(url, timeout).catch(function (error) {
+      if (!isBlockStatus(error.status)) throw error;
+      if (!hasNativeDownload()) {
+        throw new Error('The provider blocked this TV app (HTTP ' + error.status + ').');
+      }
+      blockedHosts[host] = true;
+      return nativeWithAgents(url, timeout).catch(function () {
+        throw new Error('The provider blocked this TV app (HTTP ' + error.status + '), also when retrying as a media player.');
+      });
     });
   }
 
@@ -303,6 +429,7 @@
 
   global.VeyloAPI = {
     connect: connect,
+    state: State,
     Xtream: Xtream,
     parseM3U: parseM3U,
     xtreamFromPlaylist: xtreamFromPlaylist,

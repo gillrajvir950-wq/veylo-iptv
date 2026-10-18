@@ -81,7 +81,19 @@ body.playing, body.playing #app { background: transparent; }
   font-size: 26px; color: #fff;
   background: rgba(0,0,0,0.4); border: 1px solid var(--line); border-radius: 20px; outline: none;
 }
-.field.focused input { border-color: #fff; }
+.field.focused input { border-color: #fff; box-shadow: 0 0 0 3px #fff, 0 0 30px rgba(158, 99, 255, 0.55); background: rgba(0,0,0,0.55); }
+.field.focused label { color: #fff; }
+
+/* Login focus: rounded rings that follow each control's shape, no zoom (it pushed the ring out of the card). */
+.login .focusable.focused { transform: none; }
+.login .field.focusable.focused { box-shadow: none; }
+.login .tab.focused { box-shadow: 0 0 0 3px #fff; color: #fff; }
+.login .tab.active.focused { background: rgba(158, 99, 255, 0.55); }
+.login .tab.active { background: rgba(158, 99, 255, 0.35); color: #fff; }
+.login .check.focused { box-shadow: 0 0 0 3px #fff; background: rgba(255,255,255,0.06); }
+.login .button.focused { box-shadow: 0 0 0 4px rgba(158, 99, 255, 0.9), 0 0 34px rgba(158, 99, 255, 0.55); }
+.login .saved-item.focused { box-shadow: 0 0 0 3px #fff; background: rgba(48, 42, 60, 0.9); }
+.settings .item.focusable.focused { box-shadow: none; }
 .check { display: flex; align-items: center;  font-size: 24px; padding: 16px 18px; border-radius: 20px; margin: 6px 0 22px; }
 .check .box { width: 34px; height: 34px; border-radius: 9px; border: 2px solid var(--muted); display: flex; align-items: center; justify-content: center; font-size: 24px; }
 .check.on .box { background: var(--accent); border-color: var(--accent); }
@@ -92,7 +104,7 @@ body.playing, body.playing #app { background: transparent; }
 }
 .button.secondary { background: rgba(255,255,255,0.12); color: #fff; }
 .button.danger { background: rgba(255, 59, 48, 0.18); color: #ff6b61; }
-.error { color: #ff8a80; font-size: 22px; margin-top: 18px; line-height: 1.35; }
+.error { color: #ff8a80; font-size: 22px; margin-top: 14px; line-height: 1.35; }
 .saved { width: 600px; }
 .saved h2 { font-size: 30px; margin-bottom: 20px; color: var(--muted); }
 .saved-item {
@@ -103,7 +115,7 @@ body.playing, body.playing #app { background: transparent; }
 .saved-item .icon { width: 56px; height: 56px; border-radius: 16px; background: linear-gradient(135deg, var(--accent), var(--accent-deep)); display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 800; }
 .saved-item .name { font-size: 28px; font-weight: 700; }
 .saved-item .meta { font-size: 20px; color: var(--faint); margin-top: 4px; }
-.foot { position: absolute; bottom: 36px; width: 100%; text-align: center; font-size: 18px; color: var(--faint); letter-spacing: 1px; }
+.foot { position: absolute; bottom: 10px; width: 100%; text-align: center; font-size: 18px; color: var(--faint); letter-spacing: 1px; }
 
 /* ---------- Loading ---------- */
 .loading { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;  }

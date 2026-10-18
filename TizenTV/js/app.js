@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.1.0';
+  var VERSION = '0.1.1';
 
   // ---------- Keys ----------
   var K = {
@@ -292,6 +292,11 @@
 
     App.onTypingDone = function () { readForm(); };
     var focus = new FormFocus('.login .focusable');
+    if (errorText) {
+      // After an error, stay on Connect so a retry is one press away.
+      focus.items.forEach(function (node, i) { if (node.getAttribute('data-action') === 'connect') focus.index = i; });
+      focus.apply();
+    }
   }
 
   // ---------- Connecting ----------
