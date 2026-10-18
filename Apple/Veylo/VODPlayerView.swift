@@ -217,7 +217,13 @@ private struct VODVideoSurface: NSViewRepresentable {
 struct VODPlayerView: View {
     let request: VODPlayRequest
 
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismiss) private var systemDismiss
+    /// Set when the player runs in its own Mac window.
+    @Environment(\.veyloClose) private var veyloClose
+
+    private func dismiss() {
+        if let veyloClose { veyloClose() } else { systemDismiss() }
+    }
     @StateObject private var playback = VODPlayback()
     @ObservedObject private var airplay = AirPlayManager.shared
     @State private var controlsVisible = true

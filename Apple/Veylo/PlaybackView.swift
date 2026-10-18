@@ -37,7 +37,13 @@ struct PlaybackView: View {
     let onToggleFavorite: (PlaylistChannel) -> Void
     let onChannelChange: (PlaylistChannel) -> Void
 
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismiss) private var systemDismiss
+    /// Set when the player runs in its own Mac window.
+    @Environment(\.veyloClose) private var veyloClose
+
+    private func dismiss() {
+        if let veyloClose { veyloClose() } else { systemDismiss() }
+    }
     @State private var channel: PlaylistChannel
     @State private var favoriteOverrides: [String: Bool] = [:]
     @State private var currentURL: URL?

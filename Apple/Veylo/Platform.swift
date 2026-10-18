@@ -191,26 +191,85 @@ extension View {
     }
 }
 
+/// Closes a player shown in its own Mac window (nil on iPhone, where the system dismiss is used).
+private struct VeyloCloseKey: EnvironmentKey {
+    static let defaultValue: (() -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    var veyloClose: (() -> Void)? {
+        get { self[VeyloCloseKey.self] }
+        set { self[VeyloCloseKey.self] = newValue }
+    }
+}
+
 #if os(macOS)
-/// Mac: the player opens as a sheet that always covers the whole app window and follows it
-/// when the window is resized or goes full screen.
+/// Mac: the player opens in its own black window (sized like the app window). Sheets could not
+/// cover the whole screen — the movie player even opened as a sheet inside the detail sheet.
 private struct MacPlayerSheet<Item: Identifiable, SheetContent: View>: ViewModifier {
     @Binding var item: Item?
     let sheetContent: (Item) -> SheetContent
-    @State private var size = VeyloPlatform.mainWindowSize
 
     func body(content: Content) -> some View {
         content
-            .sheet(item: $item) { value in
-                sheetContent(value)
-                    .frame(width: size.width, height: size.height)
-                    .onAppear { size = VeyloPlatform.mainWindowSize }
-                    .onDisappear { VeyloPlatform.setWindowFullScreen(false) }
+            .onChange(of: item?.id) { _, id in
+                if id == nil {
+                    MacPlayerWindow.shared.close(notify: false)
+                } else if let value = item {
+                    MacPlayerWindow.shared.show(sheetContent(value)) { item = nil }
+                }
             }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { note in
-                guard let window = note.object as? NSWindow, window === VeyloPlatform.mainWindow else { return }
-                size = VeyloPlatform.mainWindowSize
-            }
+    }
+}
+
+/// The single player window on the Mac.
+final class MacPlayerWindow: NSObject, NSWindowDelegate {
+    static let shared = MacPlayerWindow()
+    private var window: NSWindow?
+    private var onClose: (() -> Void)?
+
+    func show<V: View>(_ view: V, onClose: @escaping () -> Void) {
+        close(notify: true)
+        let frame = VeyloPlatform.mainWindow?.frame ?? NSRect(x: 120, y: 120, width: 1280, height: 800)
+        let root = view
+            .environment(\.veyloClose, { [weak self] in self?.close(notify: true) })
+            .frame(minWidth: 640, minHeight: 360)
+            .background(Color.black)
+            .preferredColorScheme(.dark)
+        let host = NSHostingController(rootView: AnyView(root))
+        let window = NSWindow(contentViewController: host)
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.backgroundColor = .black
+        window.collectionBehavior = [.fullScreenPrimary]
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.title = "Veylo Player"
+        window.setFrame(frame, display: true)
+        self.window = window
+        self.onClose = onClose
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    /// `notify` tells the opener (so its `item` goes back to nil).
+    func close(notify: Bool) {
+        guard let window else { return }
+        let callback = notify ? onClose : nil
+        self.window = nil
+        onClose = nil
+        window.delegate = nil
+        window.close()
+        callback?()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        // Red close button or ⌘W.
+        guard (notification.object as? NSWindow) === window else { return }
+        let callback = onClose
+        window = nil
+        onClose = nil
+        callback?()
     }
 }
 #endif
