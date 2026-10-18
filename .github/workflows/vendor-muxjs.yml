@@ -1,7 +1,7 @@
 name: Vendor mux.js for Samsung TV
 
 # One-off helper: fetches the mux.js TS→MP4 transmuxer (Apache-2.0) from npm and commits
-# TizenTV/js/vendor/mux.min.js. Run manually (workflow_dispatch) when the version changes.
+# TizenTV/js/vendor/mux.min.js, plus pako's inflate (MIT) for gzipped XMLTV guides. Run manually (workflow_dispatch) when the version changes.
 on:
   workflow_dispatch:
     inputs:
@@ -27,6 +27,12 @@ jobs:
           cp package/dist/mux.min.js "$GITHUB_WORKSPACE/TizenTV/js/vendor/mux.min.js"
           cp package/LICENSE "$GITHUB_WORKSPACE/TizenTV/js/vendor/mux.LICENSE.txt"
           node --check "$GITHUB_WORKSPACE/TizenTV/js/vendor/mux.min.js"
+          # pako (MIT): inflate for gzipped XMLTV guides
+          npm pack "pako@2.1.0" --silent
+          tar xzf pako-2.1.0.tgz -C . --one-top-level=pako
+          cp pako/package/dist/pako_inflate.es5.min.js "$GITHUB_WORKSPACE/TizenTV/js/vendor/pako_inflate.min.js"
+          cp pako/package/LICENSE "$GITHUB_WORKSPACE/TizenTV/js/vendor/pako.LICENSE.txt"
+          node --check "$GITHUB_WORKSPACE/TizenTV/js/vendor/pako_inflate.min.js"
           if grep -cE '\?\.[a-zA-Z_(\[]|\?\?' "$GITHUB_WORKSPACE/TizenTV/js/vendor/mux.min.js"; then
             echo "::warning title=mux.js::modern syntax found (check Tizen 6 compatibility)"
           fi
@@ -38,5 +44,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add TizenTV/js/vendor
           git diff --cached --quiet && { echo "no change"; exit 0; }
-          git commit -m "Vendor mux.js ${{ github.event.inputs.version }} for the Samsung TV engine"
+          git commit -m "Vendor mux.js ${{ github.event.inputs.version }} and pako 2.1.0 for the Samsung TV app"
           git push
