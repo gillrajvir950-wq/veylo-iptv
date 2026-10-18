@@ -296,8 +296,33 @@
     });
   };
 
-  /** Now/next programmes for one channel (base64 titles). */
+  /** Now/next per stream, kept until the current programme ends (max 10 min) and shared by
+   *  concurrent callers — for blocked providers every request is a native download. */
+  var epgCache = {};
+
   Xtream.prototype.shortEPG = function (streamID) {
+    var key = this.server + '|' + streamID;
+    var hit = epgCache[key];
+    var now = Date.now();
+    if (hit && hit.until > now) {
+      return hit.promise.then(function (items) {
+        return items.filter(function (p) { return p.end > Date.now(); });
+      });
+    }
+    var entry = { until: now + 10 * 60000 };
+    entry.promise = this.loadShortEPG(streamID).then(function (items) {
+      if (items.length && items[0].end > now) entry.until = Math.min(entry.until, items[0].end);
+      return items;
+    }, function (error) {
+      if (epgCache[key] === entry) delete epgCache[key];
+      throw error;
+    });
+    epgCache[key] = entry;
+    return entry.promise;
+  };
+
+  /** Now/next programmes for one channel (base64 titles). */
+  Xtream.prototype.loadShortEPG = function (streamID) {
     return fetchJSON(this.endpoint('get_short_epg', '&stream_id=' + streamID + '&limit=4')).then(function (data) {
       var items = list(data && (data.epg_listings || data.listings));
       return items.map(function (p) {

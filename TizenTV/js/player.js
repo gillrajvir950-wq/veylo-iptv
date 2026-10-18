@@ -18,7 +18,7 @@
   var ATTEMPT_TIMEOUT = 60000;
 
   var Player = {
-    /** Called with ('loading' | 'playing' | 'error' | 'ended' | 'retry', info). */
+    /** Called with ('loading' | 'buffering' | 'playing' | 'error' | 'retry', info). */
     onState: function () {},
     current: null,
     retryTimer: null,
@@ -69,13 +69,20 @@
       Player.onState('playing');
     },
 
-    /** step 0 = first format, step 1 = other format, then BUSY_DELAYS retries with the first format. */
+    /** step 0 = first format, step 1 = other format, then BUSY_DELAYS retries with the first format.
+     *  A stream that was already playing and dropped (or "ended" — live streams don't end) reconnects
+     *  through the same retry path. */
     fail: function (reason) {
       if (reason) Player.lastError = String(reason);
       var current = Player.current;
       if (!current) return;
       clearTimeout(Player.attemptTimer);
       Player.stop(true);
+      if (current.playing) {
+        current.playing = false;
+        current.step = 2;
+        if (!current.dropped) { current.dropped = true; current.busy = 0; }
+      }
       if (current.step === 0 && current.second) {
         current.step = 1;
         Player.open(current.second);
@@ -85,7 +92,7 @@
         var seconds = BUSY_DELAYS[current.busy];
         current.busy += 1;
         current.step = 2;
-        Player.onState('retry', { attempt: current.busy, total: BUSY_DELAYS.length, seconds: seconds });
+        Player.onState('retry', { attempt: current.busy, total: BUSY_DELAYS.length, seconds: seconds, dropped: !!current.dropped });
         clearTimeout(Player.retryTimer);
         Player.retryTimer = setTimeout(function () {
           if (Player.current !== current) return;
@@ -106,9 +113,12 @@
       try {
         av.open(url);
         av.setListener({
-          onbufferingstart: function () { if (live()) Player.onState('loading'); },
+          onbufferingstart: function () {
+            if (!live()) return;
+            Player.onState(Player.current && Player.current.playing ? 'buffering' : 'loading');
+          },
           onbufferingcomplete: function () { if (live()) Player.started(); },
-          onstreamcompleted: function () { if (live()) Player.onState('ended'); },
+          onstreamcompleted: function () { if (live()) Player.fail('STREAM_ENDED'); },
           onerror: function (type) { if (live()) Player.fail(type || 'PLAYER_ERROR'); },
           onevent: function () {}
         });
@@ -139,9 +149,11 @@
       function live() { return gen === Player.gen; }
       video.style.display = 'block';
       video.onplaying = function () { if (live()) Player.started(); };
-      video.onwaiting = function () { if (live()) Player.onState('loading'); };
+      video.onwaiting = function () {
+        if (live()) Player.onState(Player.current && Player.current.playing ? 'buffering' : 'loading');
+      };
       video.onerror = function () { if (live()) Player.fail('MEDIA_ERROR'); };
-      video.onended = function () { if (live()) Player.onState('ended'); };
+      video.onended = function () { if (live()) Player.fail('STREAM_ENDED'); };
       video.src = url;
       var started = video.play();
       if (started && started.catch) started.catch(function () { /* autoplay or format */ });

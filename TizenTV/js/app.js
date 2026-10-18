@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.1.6';
+  var VERSION = '0.1.7';
 
   // ---------- Keys ----------
   var K = {
@@ -378,7 +378,9 @@
       });
   }
 
-  function connect(profile, save, formState) {
+  /** `retries` (auto sign-in at app start): the TV's network is often not up yet right after
+   *  power-on, so "couldn't reach" / timeouts are retried a few seconds later. */
+  function connect(profile, save, formState, retries) {
     showLoading('Connecting to ' + (profile.name || Store.hostOf(profile.server || profile.playlistURL)) + '…');
     API.connect(profile, Store.format()).then(function (result) {
       var saved = profile;
@@ -398,6 +400,14 @@
       Browser.reset();
       showBrowser();
     }).catch(function (error) {
+      var offline = error && (error.status === 0 || error.status === -1);
+      if (retries > 0 && offline) {
+        showLoading('Waiting for the network…');
+        setTimeout(function () {
+          if (App.screen === 'loading') connect(profile, save, formState, retries - 1);
+        }, 4000);
+        return;
+      }
       var message = (error && error.message) || 'Couldn’t connect.';
       if (formState) showLogin(message, formState);
       else showLogin('Couldn’t open ' + (profile.name || 'the saved provider') + '. ' + message);
@@ -603,7 +613,7 @@
           var target = document.getElementById('preview-epg');
           if (target) target.innerHTML = epgHTML(list);
         }).catch(function () {});
-      }, 350);
+      }, 600);
     }
   }
 
@@ -870,6 +880,7 @@
       if (action === 'switch') {
         var id = node.getAttribute('data-id');
         var chosen = Store.providers().filter(function (p) { return p.id === id; })[0];
+        if (chosen && s && s.profile && s.profile.id === chosen.id) { showBrowser(); return; }
         if (chosen) { Store.setActive(chosen.id); Store.touch(chosen.id); connect(chosen, true); }
       } else if (action === 'add') {
         showLogin(null, null, { adding: true });
@@ -946,19 +957,27 @@
       var self = this;
       this.epgTimer = setTimeout(function () {
         client.shortEPG(channel.streamID).then(function (list) {
-          if (self.lineup[self.index] !== channel) return;
+          if (self.lineup[self.index] !== channel || App.screen !== 'player') return;
           var box = document.getElementById('player-epg');
           if (box) box.innerHTML = epgHTML(list);
+          // Refresh when the current programme ends.
+          var live = list.filter(function (p) { return p.start <= Date.now() && p.end > Date.now(); })[0];
+          if (live) {
+            self.epgTimer = setTimeout(function () { self.loadEPG(); }, Math.max(30000, live.end - Date.now() + 2000));
+          }
         }).catch(function () {});
       }, 300);
     },
 
     setState: function (state, info) {
+      var previous = this.state;
       this.state = state;
       var box = document.getElementById('player-status');
       if (!box) return;
       clearInterval(this.loadTimer);
-      if (state === 'loading') {
+      if (state === 'buffering') {
+        box.innerHTML = '<div class="spinner"></div>Buffering…';
+      } else if (state === 'loading') {
         box.innerHTML = '<div class="spinner"></div>Loading…<div id="player-wait" style="font-size:22px;color:rgba(255,255,255,.55);margin-top:12px"></div>';
         var wait = function () {
           var c = Player.current, node = document.getElementById('player-wait');
@@ -968,8 +987,11 @@
         wait();
         this.loadTimer = setInterval(wait, 1000);
       } else if (state === 'retry') {
-        box.innerHTML = '<div class="spinner"></div>Provider is busy — trying again in ' + info.seconds + ' s (' + info.attempt + '/' + info.total + ')' +
-          '<div style="font-size:22px;color:rgba(255,255,255,.6);margin-top:12px">Usually the previous channel is still counted for a moment.</div>' +
+        box.innerHTML = '<div class="spinner"></div>' +
+          (info.dropped ? 'Connection lost — reconnecting in ' : 'Provider is busy — trying again in ') +
+          info.seconds + ' s (' + info.attempt + '/' + info.total + ')' +
+          '<div style="font-size:22px;color:rgba(255,255,255,.6);margin-top:12px">' +
+          (info.dropped ? 'The provider stopped sending this channel.' : 'Usually the previous channel is still counted for a moment.') + '</div>' +
           '<div id="player-reason" style="font-size:22px;color:#ffd60a;margin-top:12px"></div>';
         this.checkConnections();
       } else if (state === 'error') {
@@ -978,10 +1000,10 @@
           '<div id="player-reason" style="font-size:24px;color:#ffd60a;margin-top:18px"></div>' + code;
         this.showOverlay(true);
         this.checkConnections();
-      } else if (state === 'ended') {
-        box.innerHTML = 'Stream ended.';
       } else {
         box.innerHTML = '';
+        // Started (often 10 s+ after tuning): start the overlay's hide countdown now.
+        if (state === 'playing' && previous !== 'playing' && previous !== 'buffering') this.showOverlay();
       }
     },
 
@@ -1047,7 +1069,7 @@
     Player.onState = function (state, info) { PlayerScreen.setState(state, info); };
     PlayerScreen.tick();
     clearInterval(PlayerScreen.clockTimer);
-    PlayerScreen.clockTimer = setInterval(PlayerScreen.tick, 15000);
+    PlayerScreen.clockTimer = setInterval(PlayerScreen.tick, 5000);
     PlayerScreen.tune(index, true);
   }
 
@@ -1057,6 +1079,7 @@
     Player.stop();
     clearInterval(PlayerScreen.clockTimer);
     clearTimeout(PlayerScreen.hideTimer);
+    clearTimeout(PlayerScreen.epgTimer);
     var section = Browser.sections[Browser.sectionIndex];
     if (section && section.channels.length && PlayerScreen.lineup.length) {
       var playing = PlayerScreen.lineup[PlayerScreen.index];
@@ -1102,7 +1125,7 @@
   function start() {
     registerKeys();
     var active = Store.active();
-    if (active) connect(active, true);
+    if (active) connect(active, true, null, 3);
     else showLogin();
   }
 
