@@ -1,8 +1,11 @@
-// iPhone/iPad only. The Mac version lives in PiPManagerMac.swift.
-#if os(iOS)
+// Picture-in-Picture for iPhone/iPad and Mac (Apple's AVPictureInPictureController on both).
 import AVKit
 import SwiftUI
+#if os(iOS)
 import UIKit
+#else
+import AppKit
+#endif
 
 /// Picture-in-Picture for live TV.
 /// MobileVLCKit 3.x cannot do PiP, so for PiP the channel's HLS (.m3u8) stream is played with
@@ -40,9 +43,11 @@ final class PiPManager: NSObject, ObservableObject {
         self.onEnd = onEnd
         state = .preparing
 
+        #if os(iOS)
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .moviePlayback)
         try? session.setActive(true)
+        #endif
 
         let item = AVPlayerItem(url: url)
         let player = AVPlayer(playerItem: item)
@@ -56,7 +61,9 @@ final class PiPManager: NSObject, ObservableObject {
             return
         }
         controller.delegate = self
+        #if os(iOS)
         controller.canStartPictureInPictureAutomaticallyFromInline = false
+        #endif
         self.controller = controller
 
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
@@ -142,6 +149,7 @@ extension PiPManager: AVPictureInPictureControllerDelegate {
 }
 
 /// Keeps the PiP player layer in the view hierarchy (behind the VLC video).
+#if os(iOS)
 struct PiPLayerHost: UIViewRepresentable {
     final class HostView: UIView {
         override func layoutSubviews() {
@@ -164,4 +172,35 @@ struct PiPLayerHost: UIViewRepresentable {
         }
     }
 }
-#endif // os(iOS)
+#else
+struct PiPLayerHost: NSViewRepresentable {
+    final class HostView: NSView {
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            wantsLayer = true
+            layer?.backgroundColor = NSColor.black.cgColor
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        override func layout() {
+            super.layout()
+            PiPManager.shared.playerLayer.frame = bounds
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
+    func makeNSView(context: Context) -> HostView {
+        let view = HostView()
+        view.layer?.addSublayer(PiPManager.shared.playerLayer)
+        return view
+    }
+
+    func updateNSView(_ nsView: HostView, context: Context) {
+        if PiPManager.shared.playerLayer.superlayer !== nsView.layer {
+            nsView.layer?.addSublayer(PiPManager.shared.playerLayer)
+        }
+    }
+}
+#endif

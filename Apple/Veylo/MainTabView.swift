@@ -60,6 +60,13 @@ struct MainTabView: View {
 
     var body: some View {
         pages
+        #if os(macOS)
+        // Mac: a slim bar centred at the top, under the notch / title bar.
+        .overlay(alignment: .top) {
+            FloatingTabBar(selection: $tab, compact: true)
+                .padding(.top, 2)
+        }
+        #else
         .overlay(alignment: .bottom) {
             // Sit low, close to the home indicator (like the iOS 26 tab bar).
             GeometryReader { proxy in
@@ -73,6 +80,7 @@ struct MainTabView: View {
             .ignoresSafeArea(edges: .bottom)
             .ignoresSafeArea(.keyboard)
         }
+        #endif
         .sensoryFeedback(.selection, trigger: tab)
         .task {
             ProviderSession.shared.start(client: library.client)
@@ -125,20 +133,68 @@ struct MainTabView: View {
     /// Hides the system tab bar and keeps content clear of the floating bar.
     private struct TabPage: ViewModifier {
         func body(content: Content) -> some View {
+            #if os(macOS)
+            content
+            #else
             content
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     Color.clear.frame(height: MainTabView.barSpace)
                 }
                 .hideTabBar()
+            #endif
         }
     }
 }
 
 struct FloatingTabBar: View {
     @Binding var selection: MainTab
+    /// Mac: slim one-line pills (icon + title) instead of the tall phone bar.
+    var compact = false
     @Namespace private var highlight
 
     var body: some View {
+        if compact { compactBar } else { phoneBar }
+    }
+
+    private var compactBar: some View {
+        HStack(spacing: 2) {
+            ForEach(MainTab.allCases) { tab in
+                let active = selection == tab
+                Button {
+                    withAnimation(.snappy(duration: 0.3)) { selection = tab }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: tab.icon)
+                            .font(.system(size: 12, weight: active ? .semibold : .regular))
+                        Text(tab.title)
+                            .font(.system(size: 13, weight: active ? .semibold : .medium))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(active ? VeyloTheme.accent : Color.white.opacity(0.7))
+                    .padding(.horizontal, 14)
+                    .frame(height: 32)
+                    .background {
+                        if active {
+                            Capsule()
+                                .fill(Color.white.opacity(0.13))
+                                .matchedGeometryEffect(id: "active-tab", in: highlight)
+                        }
+                    }
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(VeyloPressStyle(scale: 0.95))
+                .accessibilityLabel(tab.title)
+                .accessibilityAddTraits(active ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .veyloGlassCapsule()
+        .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
+        .environment(\.colorScheme, .dark)
+        .fixedSize()
+    }
+
+    private var phoneBar: some View {
         HStack(spacing: 2) {
             ForEach(MainTab.allCases) { tab in
                 let active = selection == tab
