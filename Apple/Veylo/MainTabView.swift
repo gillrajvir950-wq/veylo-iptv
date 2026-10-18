@@ -44,7 +44,7 @@ struct MainTabView: View {
     @StateObject private var library: MediaLibrary
     @State private var tab: MainTab = .live
 
-    private static let barSpace: CGFloat = 78
+    private static let barSpace: CGFloat = 66
 
     init(catalog: ChannelCatalog, client: XtreamClient?, version: String, account: AccountSummary,
          useTS: Binding<Bool>, onSignOut: @escaping () -> Void,
@@ -61,8 +61,17 @@ struct MainTabView: View {
     var body: some View {
         pages
         .overlay(alignment: .bottom) {
-            FloatingTabBar(selection: $tab)
-                .ignoresSafeArea(.keyboard)
+            // Sit low, close to the home indicator (like the iOS 26 tab bar).
+            GeometryReader { proxy in
+                VStack {
+                    Spacer(minLength: 0)
+                    FloatingTabBar(selection: $tab)
+                        .padding(.bottom, max(proxy.safeAreaInsets.bottom - 18, 8))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .ignoresSafeArea(edges: .bottom)
+            .ignoresSafeArea(.keyboard)
         }
         .sensoryFeedback(.selection, trigger: tab)
         .task {
@@ -166,7 +175,6 @@ struct FloatingTabBar: View {
         .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
         .environment(\.colorScheme, .dark)
         .padding(.horizontal, 20)
-        .padding(.bottom, 6)
     }
 }
 

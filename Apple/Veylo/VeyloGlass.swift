@@ -57,22 +57,13 @@ private struct GlassBackdrop<S: InsettableShape>: View {
     }
 }
 
-/// Groups nearby glass shapes so they blend and morph together on iOS 26.
+/// Layout wrapper kept for call sites. It no longer uses GlassEffectContainer: the container
+/// composites all glass in one layer, which painted over the labels (chip titles disappeared).
 struct VeyloGlassGroup<Content: View>: View {
     var spacing: CGFloat = 12
     @ViewBuilder let content: () -> Content
 
-    var body: some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, macOS 26.0, *) {
-            GlassEffectContainer(spacing: spacing) { content() }
-        } else {
-            content()
-        }
-        #else
-        content()
-        #endif
-    }
+    var body: some View { content() }
 }
 
 /// Round glass icon button used by the players and detail screens.
