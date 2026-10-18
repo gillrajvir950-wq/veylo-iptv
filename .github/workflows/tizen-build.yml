@@ -1,0 +1,42 @@
+name: Veylo Samsung TV
+
+on:
+  push:
+    branches: [main]
+    paths: ['TizenTV/**', '.github/workflows/tizen-build.yml']
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Check JavaScript syntax
+        run: for f in TizenTV/js/*.js; do node --check "$f"; done
+      - name: Check for features the 2021 TV engine lacks
+        run: |
+          set -e
+          if grep -nE '\?\.[a-zA-Z_(\[]|\?\?|\.replaceAll\(' TizenTV/js/*.js; then
+            echo "::error title=Tizen compatibility::Optional chaining, ?? or replaceAll found (not supported on Tizen 6 / Chromium 76)"
+            exit 1
+          fi
+          if grep -nE '^\s*(inset|gap|row-gap|column-gap)\s*:' TizenTV/css/*.css; then
+            echo "::error title=Tizen compatibility::CSS inset/gap found (not supported on Tizen 6)"
+            exit 1
+          fi
+      - name: Check config.xml
+        run: python3 -c "import xml.dom.minidom; xml.dom.minidom.parse('TizenTV/config.xml')"
+      - name: Package Tizen project
+        run: |
+          set -euo pipefail
+          VERSION=$(python3 -c "import xml.dom.minidom as m; print(m.parse('TizenTV/config.xml').documentElement.getAttribute('version'))")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          (cd TizenTV && zip -qr "$GITHUB_WORKSPACE/Veylo-TV-$VERSION-tizen-project.zip" . -x '*.DS_Store')
+          echo "::notice title=Samsung TV::Veylo TV $VERSION project packaged"
+      - name: Upload project
+        uses: actions/upload-artifact@v4
+        with:
+          name: Veylo-TV-${{ env.VERSION }}-Tizen-Project
+          path: Veylo-TV-*-tizen-project.zip
+          retention-days: 30

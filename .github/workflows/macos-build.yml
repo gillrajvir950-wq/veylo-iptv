@@ -3,6 +3,7 @@ name: Veylo Mac Build
 on:
   push:
     branches: [main]
+    paths-ignore: ['TizenTV/**', '.github/workflows/tizen-build.yml']
   workflow_dispatch:
 
 jobs:
