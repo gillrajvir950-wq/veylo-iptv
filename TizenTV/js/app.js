@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.1.1';
+  var VERSION = '0.1.2';
 
   // ---------- Keys ----------
   var K = {
@@ -74,8 +74,11 @@
   function clamp(value, low, high) { return Math.max(low, Math.min(high, value)); }
 
   // ---------- Virtual list (handles thousands of rows) ----------
-  function VList(container, rowHeight, renderRow) {
+  // Rows are laid out in normal flow (no absolute positions) and the list has a fixed height
+  // from CSS: on the TV's older engine flex heights measured ~0, so rows piled up in one slot.
+  function VList(container, rowHeight, renderRow, rows) {
     this.container = container;
+    this.rows = rows || 8;
     this.inner = container.querySelector('.vlist-inner');
     this.rowHeight = rowHeight;
     this.renderRow = renderRow;
@@ -93,7 +96,9 @@
   };
 
   VList.prototype.visibleCount = function () {
-    return Math.max(1, Math.floor(this.container.clientHeight / this.rowHeight));
+    var height = this.container.clientHeight;
+    if (!height || height < this.rowHeight * 2) return this.rows;
+    return Math.max(1, Math.floor(height / this.rowHeight));
   };
 
   VList.prototype.move = function (delta) {
@@ -115,7 +120,11 @@
     for (var i = this.top; i < end; i++) {
       html += this.renderRow(this.items[i], i, i === this.index && this.focused, (i - this.top) * this.rowHeight);
     }
-    this.inner.innerHTML = html;
+    // Replace the node instead of only its innerHTML so no old row paint can stay behind.
+    var fresh = this.inner.cloneNode(false);
+    fresh.innerHTML = html;
+    this.container.replaceChild(fresh, this.inner);
+    this.inner = fresh;
   };
 
   VList.prototype.current = function () { return this.items[this.index]; };
@@ -132,6 +141,7 @@
     App.screen = name;
     App.keyHandler = handler;
     document.body.classList.toggle('playing', name === 'player');
+    document.documentElement.classList.toggle('playing', name === 'player');
     var root = document.getElementById('app');
     root.innerHTML = html;
   }
@@ -420,21 +430,21 @@
     Browser.catList = new VList(document.getElementById('cats'), 74, function (section, i, focused, y) {
       var count = section.id === 'settings' || section.id === 'search' ? '' : section.channels.length;
       return '<div class="cat' + (i === Browser.sectionIndex ? ' selected' : '') + (focused ? ' focused' : '') +
-        '" style="top:' + y + 'px">' +
+        '">' +
         '<span class="glyph">' + section.glyph + '</span>' +
         '<span class="label">' + esc(section.label) + '</span>' +
         '<span class="count">' + count + '</span></div>';
-    });
+    }, 12);
     Browser.chList = new VList(document.getElementById('channels'), 112, function (channel, i, focused, y) {
       var fav = Store.isFavorite(channel.key);
-      return '<div class="row' + (focused ? ' focused' : '') + '" style="top:' + y + 'px">' +
+      return '<div class="row' + (focused ? ' focused' : '') + '">' +
         '<div class="num">' + (i + 1) + '</div>' + logoHTML(channel) +
         '<div class="info"><div class="title">' + esc(channel.title) + '</div>' +
         '<div class="meta">' + esc(API.title(channel.category)) + '</div></div>' +
         (channel.quality ? '<span class="badge">' + channel.quality + '</span>' : '') +
         (fav ? '<span class="heart">♥</span>' : '') +
         '</div>';
-    });
+    }, 8);
 
     Browser.catList.focused = Browser.focus === 'cats';
     Browser.chList.focused = Browser.focus === 'list';
@@ -732,13 +742,35 @@
       if (state === 'loading') {
         box.innerHTML = '<div class="spinner"></div>Loading…';
       } else if (state === 'error') {
-        box.innerHTML = 'This channel isn’t playing right now.<br><span style="font-size:24px;color:rgba(255,255,255,.6)">Press OK to retry · ▲▼ for another channel</span>';
+        var code = Player.lastError ? '<div style="font-size:18px;color:rgba(255,255,255,.4);margin-top:14px">' + esc(Player.lastError) + '</div>' : '';
+        box.innerHTML = 'This channel isn’t playing right now.<br><span style="font-size:24px;color:rgba(255,255,255,.6)">Press OK to retry · ▲▼ for another channel</span>' +
+          '<div id="player-reason" style="font-size:24px;color:#ffd60a;margin-top:18px"></div>' + code;
         this.showOverlay(true);
+        this.checkConnections();
       } else if (state === 'ended') {
         box.innerHTML = 'Stream ended.';
       } else {
         box.innerHTML = '';
       }
+    },
+
+    /** Most "plays once, then fails" cases are the provider's connection limit. */
+    checkConnections: function () {
+      var client = App.session && App.session.client;
+      if (!client || !client.authenticate) return;
+      var channel = this.lineup[this.index];
+      client.authenticate().then(function (acc) {
+        if (PlayerScreen.lineup[PlayerScreen.index] !== channel || PlayerScreen.state !== 'error') return;
+        App.session.account = acc;
+        var box = document.getElementById('player-reason');
+        if (!box) return;
+        if (acc.status && acc.status.toLowerCase() !== 'active') {
+          box.textContent = 'Your subscription is ' + acc.status.toLowerCase() + '.';
+        } else if (acc.max && acc.active >= acc.max) {
+          box.textContent = 'All ' + acc.max + ' connection' + (acc.max === 1 ? '' : 's') +
+            ' of your plan are in use. Close Veylo on other devices, wait a minute and press OK.';
+        }
+      }).catch(function () {});
     },
 
     showOverlay: function (stay) {

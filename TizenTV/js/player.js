@@ -13,12 +13,18 @@
     onState: function () {},
     current: null,
     triedAlt: false,
+    retries: 0,
+    retryTimer: null,
+    /** Last AVPlay error name (shown small on the error screen to help diagnose). */
+    lastError: '',
 
     /** Plays `url`; if it fails once, tries `altURL` (TS ↔ HLS). */
     play: function (url, altURL) {
       Player.stop();
       Player.current = { url: url, alt: altURL || '' };
       Player.triedAlt = false;
+      Player.retries = 0;
+      Player.lastError = '';
       Player.open(url);
     },
 
@@ -42,19 +48,38 @@
       return false;
     },
 
-    fail: function () {
+    /** A failure right after the previous stream closed is often the provider still counting
+     *  the old connection — wait a moment and try the same URL once more before switching format. */
+    fail: function (reason) {
+      if (reason) Player.lastError = String(reason);
+      var current = Player.current;
+      if (!current) return;
+      if (Player.retries < 1) {
+        Player.retries += 1;
+        Player.stop(true);
+        Player.onState('loading');
+        clearTimeout(Player.retryTimer);
+        Player.retryTimer = setTimeout(function () {
+          if (Player.current === current) Player.open(Player.triedAlt ? current.alt : current.url);
+        }, 3000);
+        return;
+      }
       if (!Player.retryAlternate()) Player.onState('error');
     },
 
     openAVPlay: function (url) {
       var av = global.webapis.avplay;
+      // Callbacks from an older stream (fast zapping, retries) must not affect the new one.
+      Player.gen = (Player.gen || 0) + 1;
+      var gen = Player.gen;
+      function live() { return gen === Player.gen; }
       try {
         av.open(url);
         av.setListener({
-          onbufferingstart: function () { Player.onState('loading'); },
-          onbufferingcomplete: function () { Player.onState('playing'); },
-          onstreamcompleted: function () { Player.onState('ended'); },
-          onerror: function () { Player.fail(); },
+          onbufferingstart: function () { if (live()) Player.onState('loading'); },
+          onbufferingcomplete: function () { if (live()) Player.onState('playing'); },
+          onstreamcompleted: function () { if (live()) Player.onState('ended'); },
+          onerror: function (type) { if (live()) Player.fail(type || 'PLAYER_ERROR'); },
           onevent: function () {}
         });
         // Providers that block the TV's browser engine get the same player identity as the API calls.
@@ -65,13 +90,14 @@
         av.setDisplayRect(0, 0, 1920, 1080);
         try { av.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX'); } catch (e) { /* older TVs */ }
         av.prepareAsync(function () {
+          if (!live()) return;
           try {
             av.play();
             Player.onState('playing');
-          } catch (e) { Player.fail(); }
-        }, function () { Player.fail(); });
+          } catch (e) { Player.fail('PLAY_FAILED'); }
+        }, function (error) { if (live()) Player.fail((error && (error.name || error.message)) || 'PREPARE_FAILED'); });
       } catch (e) {
-        Player.fail();
+        Player.fail((e && (e.name || e.message)) || 'OPEN_FAILED');
       }
     },
 
@@ -106,6 +132,8 @@
 
     /** `keepCurrent` = stopping only to try the alternate stream. */
     stop: function (keepCurrent) {
+      if (!keepCurrent) clearTimeout(Player.retryTimer);
+      Player.gen = (Player.gen || 0) + 1;
       if (hasAVPlay()) {
         try {
           var av = global.webapis.avplay;
