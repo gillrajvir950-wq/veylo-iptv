@@ -489,4 +489,25 @@ html.playing, body.playing, body.playing #app { background: transparent; }
 .lock-list { height: 820px; overflow: hidden; width: 1100px; }
 .lock-list h3 { font-size: 20px; letter-spacing: 1.5px; color: var(--faint); margin: 20px 0 12px 10px; }
 .lock-list .item.on .value { color: #ffd60a; }
+/* Live preview: the page is see-through where the picture is (Samsung's player draws behind it). */
+html.previewing, html.previewing body, html.previewing #app { background: transparent; }
+html.previewing .backdrop { display: none; }
+html.previewing .preview { background: rgba(16, 14, 20, 0.0); }
+html.previewing #preview .logo { background: transparent; border-color: rgba(255,255,255,0.25); }
+html.previewing #preview .logo > * { visibility: hidden; }
+html.previewing #preview .logo.preview-wait { background: rgba(0,0,0,0.0); }
 .engine-video.preview-video { z-index: 3; border-radius: 22px; background: #000; }
+
+/* ---------- Guide inside Live TV ---------- */
+.key.blue { background: #0a84ff; }
+.content-body .guide-host { display: none; }
+.content-body.guide-mode .channels, .content-body.guide-mode .details { display: none; }
+.content-body.guide-mode .guide-host { display: block; flex: 1; min-width: 0; padding-left: 30px; }
+.guide-host .gdetail { height: 150px; }
+.guide-host .ggrid { height: 600px; }
+.guide-host #grows { height: 576px; }
+.row .meta .nn-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nn-now { color: rgba(255,255,255,0.85); }
+.nn-left { color: var(--faint); }
+.nn-bar { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.15); margin-top: 7px; width: 70%; overflow: hidden; }
+.nn-bar > div { height: 100%; background: var(--accent); }

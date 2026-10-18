@@ -126,6 +126,7 @@
       options = options || {};
       Player.current = { plan: buildPlan(url, altURL, options), step: 0, log: [], drops: 0,
         key: options.key || '', began: Date.now() };
+      Player.rect = options.rect || null;
       Player.lastError = '';
       Player.open();
     },
@@ -164,7 +165,26 @@
         onPlaying: function () { if (live()) Player.started(); },
         onBuffering: function () { if (live()) Player.onState('buffering'); },
         onError: function (name) { if (live()) Player.fail(name); }
-      });
+      }, Player.rect ? { rect: Player.rect } : null);
+    },
+
+    /** Moves the picture: a box on the page (live preview) or full screen (null) — without
+     *  restarting the stream, so going from preview to full screen is instant. */
+    setRect: function (rect) {
+      Player.rect = rect || null;
+      if (Player.engine && Player.engine.video) {
+        var v = Player.engine.video;
+        v.className = rect ? 'engine-video preview-video' : 'engine-video';
+        v.style.left = rect ? rect.left + 'px' : '';
+        v.style.top = rect ? rect.top + 'px' : '';
+        v.style.width = rect ? rect.width + 'px' : '';
+        v.style.height = rect ? rect.height + 'px' : '';
+      } else if (hasAVPlay()) {
+        try {
+          var r = rect || { left: 0, top: 0, width: 1920, height: 1080 };
+          global.webapis.avplay.setDisplayRect(Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height));
+        } catch (e) { /* not open */ }
+      }
     },
 
     started: function () {
@@ -247,7 +267,8 @@
             if (Player.current) Player.current.uaError = (e && (e.name || e.message)) || 'failed';
           }
         }
-        av.setDisplayRect(0, 0, 1920, 1080);
+        var r = Player.rect || { left: 0, top: 0, width: 1920, height: 1080 };
+        av.setDisplayRect(Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height));
         try { av.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX'); } catch (e) { /* older TVs */ }
         av.prepareAsync(function () {
           if (!live()) return;

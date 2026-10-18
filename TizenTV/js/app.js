@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.2.3';
+  var VERSION = '0.2.4';
 
   // ---------- Keys ----------
   var K = {
@@ -77,7 +77,6 @@
   var TABS = [
     { id: 'home', label: 'Home' },
     { id: 'live', label: 'Live TV' },
-    { id: 'guide', label: 'TV Guide' },
     { id: 'movies', label: 'Movies' },
     { id: 'series', label: 'Series' },
     { id: 'settings', label: 'Settings' }
@@ -138,7 +137,6 @@
     if (id === 'live') { Browser.focus = 'cats'; showBrowser(); }
     else if (id === 'settings') showSettings();
     else if (id === 'home' && global.VeyloHome) global.VeyloHome.show();
-    else if (id === 'guide' && global.VeyloGuide) global.VeyloGuide.show();
     else if (global.VeyloLibrary) global.VeyloLibrary.show(id === 'movies' ? 'movie' : 'series');
   }
 
@@ -423,44 +421,47 @@
     lastBack: 0
   };
 
-  // ---------- Live preview (small muted picture in the channel list; Settings › Live preview) ----------
-  var Preview = { session: null, timer: null, key: '' };
+  // ---------- Live preview (Settings › Live preview): the channel plays inside the preview box ----------
+  // It uses the same player as full screen (Samsung's or the Veylo engine, whichever works for the
+  // channel), so OK on that channel just enlarges the picture — no second connection, no restart.
+  var Preview = { timer: null, channel: null, active: false, handover: false };
 
-  function stopPreview() {
+  function stopPreview(keepStream) {
     clearTimeout(Preview.timer);
-    if (Preview.session) { try { Preview.session.stop(); } catch (e) {} }
-    Preview.session = null;
-    Preview.key = '';
+    if (Preview.active && !keepStream) Player.stop();
+    Preview.active = false;
+    Preview.channel = null;
+    document.documentElement.classList.remove('previewing');
   }
 
   function schedulePreviewVideo(channel) {
     stopPreview();
-    if (!channel || !Store.preview() || !global.VeyloEngine || !Player.engineEnabled()) return;
-    var url = /\.m3u8(\?|$)/i.test(channel.url) ? channel.altURL : channel.url;
-    if (!url || /\.m3u8(\?|$)/i.test(url)) return;
+    if (!channel || !Store.preview()) return;
     Preview.timer = setTimeout(function () {
-      if (App.screen !== 'browser' || Browser.chList.current() !== channel) return;
+      if (App.screen !== 'browser' || !Browser.chList || Browser.chList.current() !== channel || Browser.focus !== 'list') return;
       var box = document.querySelector('#preview .logo');
       if (!box) return;
       var r = box.getBoundingClientRect();
-      var start = function (mode) {
-        Preview.key = channel.key;
-        Preview.session = global.VeyloEngine.start(url, mode, {
-          onPlaying: function () {},
-          onBuffering: function () {},
-          onError: function () {
-            if (Preview.key !== channel.key) return;
-            Preview.session = null;
-            if (mode === 'web' && global.VeyloEngine.hasNative()) start('native');
-          }
-        }, { muted: true, rect: { left: r.left, top: r.top, width: r.width, height: r.height } });
+      Preview.channel = channel;
+      Preview.active = true;
+      document.documentElement.classList.add('previewing');
+      box.classList.add('preview-wait');
+      Player.onState = function (state) {
+        if (!Preview.active) return;
+        var node = document.querySelector('#preview .logo');
+        if (node) node.classList.toggle('preview-wait', state !== 'playing');
+        if (state === 'error') stopPreview();
       };
-      start('web');
-    }, 1200);
+      Player.play(channel.url, channel.altURL, {
+        key: Store.scope + '|' + channel.key, uhd: channel.quality === '4K',
+        rect: { left: r.left, top: r.top, width: r.width, height: r.height }
+      });
+    }, 1000);
   }
 
   function setScreen(name, html, handler) {
-    stopPreview();
+    stopPreview(Preview.handover);
+    if (global.VeyloGuide) global.VeyloGuide.unmount();
     if (Browser.pendingSection) { clearTimeout(Browser.pendingSection); Browser.pendingSection = null; }
     clearTimeout(Browser.previewTimer);
     App.screen = name;
@@ -812,15 +813,17 @@
         '</div>' +
         '<div class="content">' +
           '<div class="content-head"><h1 id="section-title"></h1><div class="sub" id="section-sub"></div></div>' +
-          '<div class="content-body">' +
+          '<div class="content-body' + (Browser.view === 'guide' ? ' guide-mode' : '') + '" id="content-body">' +
             '<div class="channels vlist" id="channels"><div class="vlist-inner"></div></div>' +
             '<div class="details"><div class="preview" id="preview"></div></div>' +
+            '<div class="guide-host" id="guide-host"></div>' +
           '</div>' +
           '<div class="hints">' +
             '<span><span class="key">▲</span>Menu</span>' +
             '<span><span class="key">OK</span>Play</span>' +
             '<span><span class="key">◀ ▶</span>Categories / Channels</span>' +
             '<span><span class="key yellow">&nbsp;</span>Favorite</span>' +
+            '<span><span class="key blue">&nbsp;</span>' + (Browser.view === 'guide' ? 'Channel list' : 'TV guide') + '</span>' +
             '<span><span class="key green">&nbsp;</span>Accounts</span>' +
             '<span><span class="key">BACK</span>' + (Browser.focus === 'list' ? 'Categories' : 'Menu') + '</span>' +
           '</div>' +
@@ -839,10 +842,13 @@
     }, 12);
     Browser.chList = new VList(document.getElementById('channels'), 112, function (channel, i, focused, y) {
       var fav = Store.isFavorite(channel.key);
-      return '<div class="row' + (focused ? ' focused' : '') + '">' +
+      // What's on now, straight in the channel list (the TV guide lives here).
+      var guide = global.VeyloGuide && Browser.view !== 'guide' ? global.VeyloGuide.get(channel, rowOnScreen) : null;
+      var nn = guide ? global.VeyloGuide.nowNextHTML(guide) : '';
+      return '<div class="row' + (focused ? ' focused' : '') + '" data-key="' + esc(channel.key) + '">' +
         '<div class="num">' + (i + 1) + '</div>' + logoHTML(channel) +
         '<div class="info"><div class="title">' + esc(channel.title) + '</div>' +
-        '<div class="meta">' + esc(API.title(channel.category)) + '</div></div>' +
+        '<div class="meta">' + (nn || esc(API.title(channel.category))) + '</div></div>' +
         (channel.quality ? '<span class="badge">' + channel.quality + '</span>' : '') +
         (fav ? '<span class="heart">♥</span>' : '') +
         '</div>';
@@ -884,8 +890,66 @@
       }[section.id] || 'No channels here.';
       box.innerHTML = '<div class="empty">' + message + '</div>';
     }
-    updatePreview();
+    if (Browser.view === 'guide') mountGuide(position || 0);
+    else updatePreview();
   }
+
+  function rowOnScreen(channel) {
+    var list = Browser.chList;
+    if (!list || App.screen !== 'browser' || Browser.view === 'guide') return false;
+    var at = list.items.indexOf(channel);
+    return at >= list.top - 1 && at <= list.top + list.visibleCount() + 1;
+  }
+
+  /** Asks the guide for the rows now on screen (rows slid into view weren't rebuilt). */
+  function requestVisibleEPG() {
+    var list = Browser.chList;
+    if (!global.VeyloGuide || !list || Browser.view === 'guide') return;
+    var end = Math.min(list.items.length, list.top + list.visibleCount() + 1);
+    for (var i = list.top; i < end; i++) {
+      var ch = list.items[i];
+      var data = global.VeyloGuide.get(ch, rowOnScreen);
+      if (data) {
+        var node = document.querySelector('#channels .row[data-key="' + ch.key.replace(/"/g, '') + '"] .meta');
+        var html = global.VeyloGuide.nowNextHTML(data);
+        if (node && html && node.innerHTML !== html) node.innerHTML = html;
+      }
+    }
+  }
+
+  /** The time grid for the open section (same sidebar, other view of the same channels). */
+  function mountGuide(index) {
+    var host = document.getElementById('guide-host');
+    var section = Browser.sections[Browser.sectionIndex];
+    if (!host || !global.VeyloGuide) return;
+    if (!section.channels.length) { global.VeyloGuide.unmount(); host.innerHTML = '<div class="empty">No channels here.</div>'; return; }
+    global.VeyloGuide.mount(host, section.channels, {
+      index: index,
+      focused: Browser.focus === 'list',
+      onWatch: function (i) {
+        Browser.positions[section.id] = i;
+        Browser.chList.index = i;
+        showPlayer(section.channels, i, section.label);
+      },
+      onLeft: function () { Browser.chList.index = global.VeyloGuide.index(); setBrowserFocus('cats'); },
+      onUp: function () { setBrowserFocus('nav'); }
+    });
+  }
+
+  /** BLUE / INFO: channel list ⇄ TV guide grid. */
+  function toggleGuideView() {
+    flushSection();
+    var section = Browser.sections[Browser.sectionIndex];
+    if (Browser.view === 'guide') {
+      Browser.positions[section.id] = global.VeyloGuide.index();
+      Browser.view = 'list';
+    } else {
+      Browser.positions[section.id] = Browser.chList.index;
+      Browser.view = 'guide';
+    }
+    showBrowser();
+  }
+
 
   function flushSection() {
     if (!Browser.pendingSection) return;
@@ -913,7 +977,8 @@
     Browser.catList.focused = where === 'cats';
     Browser.chList.focused = where === 'list';
     Browser.catList.render();
-    if (Browser.chList.items.length) Browser.chList.render();
+    if (Browser.view === 'guide') global.VeyloGuide.setFocused(where === 'list');
+    else if (Browser.chList.items.length) Browser.chList.render();
     var hint = document.querySelector('.hints > span:last-child');
     if (hint) hint.innerHTML = '<span class="key">BACK</span>' + (where === 'list' ? 'Categories' : where === 'nav' ? 'Exit' : 'Menu');
   }
@@ -1000,6 +1065,17 @@
     var section = Browser.sections[Browser.sectionIndex];
     if (key >= 48 && key <= 57 && Browser.chList.items.length) { numberEntry(key - 48); return; }
     if (key === K.GREEN) { showAccounts(); return; }
+    if (key === K.BLUE || key === K.INFO) { toggleGuideView(); return; }
+    if (Browser.view === 'guide' && Browser.focus === 'list') {
+      if (key === K.BACK || key === K.ESC) { setBrowserFocus('cats'); return; }
+      if (key === K.YELLOW) {
+        var gch = section.channels[global.VeyloGuide.index()];
+        toggleFavorite(gch);
+        return;
+      }
+      if (global.VeyloGuide.key(key)) return;
+      return false;
+    }
 
     if (Browser.focus === 'cats') {
       if (key === K.UP && Browser.catList.index === 0) { flushSection(); setBrowserFocus('nav'); return; }
@@ -1032,14 +1108,15 @@
     // Channel list
     if (key === K.UP && Browser.chList.index === 0) { setBrowserFocus('nav'); return; }
     if (key === K.UP || key === K.DOWN) {
-      if (Browser.chList.move(key === K.UP ? -1 : 1)) schedulePreview();
+      if (Browser.chList.move(key === K.UP ? -1 : 1)) { schedulePreview(); requestVisibleEPG(); }
     } else if (key === K.CH_UP || key === K.CH_DOWN) {
-      if (Browser.chList.move(key === K.CH_UP ? -Browser.chList.visibleCount() : Browser.chList.visibleCount())) schedulePreview();
+      if (Browser.chList.move(key === K.CH_UP ? -Browser.chList.visibleCount() : Browser.chList.visibleCount())) { schedulePreview(); requestVisibleEPG(); }
     } else if (key === K.LEFT || key === K.BACK || key === K.ESC) {
       setBrowserFocus('cats');
     } else if (key === K.ENTER || key === K.PLAY || key === K.PLAY_PAUSE) {
       var channel = Browser.chList.current();
       if (channel) {
+        Preview.handover = Preview.active && Preview.channel === channel;
         Browser.positions[section.id] = Browser.chList.index;
         showPlayer(section.channels, Browser.chList.index, section.id === 'search' ? 'Search results' : section.label);
       }
@@ -1405,6 +1482,19 @@
       this.index = next;
       var channel = this.lineup[this.index];
       this.paused = false;
+      if (immediate && Preview.handover && Player.current) {
+        // The preview is already playing this channel: just make it full screen.
+        Preview.handover = false;
+        Player.setRect(null);
+        Store.addRecent(channel.key);
+        Store.setLastChannel(channel.key);
+        this.setState(Player.current.playing ? 'playing' : 'loading');
+        this.renderInfo();
+        this.showOverlay();
+        this.loadEPG();
+        return;
+      }
+      Preview.handover = false;
       Player.stop();   // frees the provider connection right away
       this.setState('loading');
       this.renderInfo();
@@ -1695,6 +1785,14 @@
   // ---------- Start ----------
   function start() {
     registerKeys();
+    if (global.VeyloGuide) {
+      global.VeyloGuide.onData(function (channel) {
+        if (App.screen !== 'browser' || Browser.view === 'guide') return;
+        var row = document.querySelector('#channels .row[data-key="' + channel.key.replace(/"/g, '') + '"] .meta');
+        var html = global.VeyloGuide.nowNextHTML(global.VeyloGuide.get(channel));
+        if (row && html) row.innerHTML = html;
+      });
+    }
     if (global.VeyloEngine && global.VeyloEngine.cleanupTemp) global.VeyloEngine.cleanupTemp();
     var active = Store.active();
     if (active) connect(active, true, null, 3, true);
