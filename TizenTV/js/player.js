@@ -32,8 +32,22 @@
   function remembered() {
     try { return JSON.parse(global.localStorage.getItem(MEMORY_KEY) || 'null'); } catch (e) { return null; }
   }
-  function remember(value, channelKey) {
-    try { global.localStorage.setItem(MEMORY_KEY, JSON.stringify(value)); } catch (e) { /* storage blocked */ }
+  // 0.2.4–0.2.8's live preview saved Samsung-player wins (it played through AVPlay) for every
+  // channel it touched, which put the slow player first everywhere. Forget that once.
+  (function resetOldMemory() {
+    try {
+      if (global.localStorage.getItem('veylo.tv.tryMemoryV2')) return;
+      global.localStorage.removeItem(MEMORY_KEY);
+      global.localStorage.removeItem(CHANNEL_KEY);
+      global.localStorage.setItem('veylo.tv.tryMemoryV2', '1');
+    } catch (e) { /* storage blocked */ }
+  })();
+
+  /** `global` = false: a 4K channel's win (Samsung's player for HEVC) must not reorder every other channel. */
+  function remember(value, channelKey, global_) {
+    if (global_ !== false) {
+      try { global.localStorage.setItem(MEMORY_KEY, JSON.stringify(value)); } catch (e) { /* storage blocked */ }
+    }
     if (!channelKey) return;
     try {
       var map = JSON.parse(global.localStorage.getItem(CHANNEL_KEY) || '{}');
@@ -90,7 +104,9 @@
     var plan = [];
     var engine = engineTries(url, altURL, memory);
     // 4K channels are usually HEVC, which the engine can't play: Samsung's player first.
-    var avplayWon = (memory && agentByID(memory.agent)) || (options.uhd && !own);
+    // Samsung's player goes first only when it won on this very channel (or for 4K); one
+    // Samsung win elsewhere no longer slows every other channel down.
+    var avplayWon = (own && agentByID(own.agent)) || (options.uhd && !own);
     if (!avplayWon) plan = plan.concat(engine);
     if (memory) {
       var known = agentByID(memory.agent);
@@ -125,7 +141,7 @@
       Player.stop();
       options = options || {};
       Player.current = { plan: buildPlan(url, altURL, options), step: 0, log: [], drops: 0,
-        key: options.key || '', began: Date.now() };
+        key: options.key || '', uhd: !!options.uhd, began: Date.now() };
       Player.rect = options.rect || null;
       Player.lastError = '';
       Player.open();
@@ -195,7 +211,7 @@
         current.playing = true;
         current.playingSince = Date.now();
         var tryNow = current.plan[current.step];
-        remember({ agent: tryNow.agent.id, format: tryNow.format }, current.key);
+        remember({ agent: tryNow.agent.id, format: tryNow.format }, current.key, !current.uhd);
         current.log.push({ format: tryNow.format, agent: tryNow.agent.label, result: 'OK', seconds: Math.round((Date.now() - current.since) / 1000) });
       }
       Player.onState('playing');

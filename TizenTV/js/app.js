@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.2.8';
+  var VERSION = '0.2.9';
 
   // ---------- Keys ----------
   var K = {
@@ -711,12 +711,19 @@
     }
   };
 
+  /** Sidebar icon. The search mark is drawn (the TV font has no magnifier character). */
+  var SEARCH_ICON = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">' +
+    '<circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.5" y1="15.5" x2="21" y2="21"/></svg>';
+  function glyphHTML(glyph, code) {
+    return '<span class="glyph' + (code ? ' code' : '') + '">' + (glyph === 'search' ? SEARCH_ICON : esc(glyph)) + '</span>';
+  }
+
   function buildSections() {
     var s = App.session;
     var favs = Store.favorites().map(function (k) { return App.byKey[k]; }).filter(function (c) { return c && !isHidden(c); });
     var recents = Store.recents().map(function (k) { return App.byKey[k]; }).filter(function (c) { return c && !isHidden(c); });
     var sections = [
-      { id: 'search', label: Browser.query ? 'Search: ' + Browser.query : 'Search', glyph: '⌕', channels: searchResults() },
+      { id: 'search', label: Browser.query ? 'Search: ' + Browser.query : 'Search', glyph: 'search', channels: searchResults() },
       { id: 'all', label: 'All Channels', glyph: '▤', channels: s.channels },
       { id: 'favorites', label: 'Favorites', glyph: '♥', channels: favs },
       { id: 'recent', label: 'Recently Watched', glyph: '↺', channels: recents }
@@ -799,7 +806,7 @@
       var count = section.id === 'search' || section.type === 'back' || section.type === 'locked' ? '' : section.channels.length;
       return '<div class="cat' + (i === Browser.sectionIndex ? ' selected' : '') + (focused ? ' focused' : '') +
         (section.type === 'back' ? ' back' : '') + '">' +
-        '<span class="glyph' + (section.code ? ' code' : '') + '">' + esc(section.glyph) + '</span>' +
+        glyphHTML(section.glyph, section.code) +
         '<span class="label">' + esc(section.label) + '</span>' +
         '<span class="count">' + count + '</span></div>';
     }, 12);
@@ -823,7 +830,20 @@
     Browser.catList.setItems(Browser.sections, Browser.sectionIndex);
     openSection(Browser.sectionIndex, Browser.positions[Browser.sections[Browser.sectionIndex].id] || 0);
 
+    // Results follow the typing (and deleting) while the TV keyboard is open.
+    var searchInput = document.getElementById('search-input');
+    searchInput.addEventListener('focus', function () {
+      clearInterval(Browser.liveTimer);
+      Browser.liveValue = searchInput.value;
+      // Polled as well: not every TV keyboard sends 'input' events while typing.
+      Browser.liveTimer = setInterval(checkLiveSearch, 250);
+    });
+    searchInput.addEventListener('input', checkLiveSearch);
+    searchInput.addEventListener('blur', function () { clearInterval(Browser.liveTimer); clearTimeout(Browser.liveDelay); });
+
     App.onTypingDone = function (input) {
+      clearInterval(Browser.liveTimer);
+      clearTimeout(Browser.liveDelay);
       Browser.query = input.value.trim();
       Browser.sections = buildSections();
       Browser.sectionIndex = 0;
@@ -831,6 +851,28 @@
       openSection(0, 0);
       if (Browser.sections[0].channels.length) setBrowserFocus('list');
     };
+  }
+
+  function checkLiveSearch() {
+    var input = document.getElementById('search-input');
+    if (!input || input.value === Browser.liveValue) return;
+    Browser.liveValue = input.value;
+    clearTimeout(Browser.liveDelay);
+    Browser.liveDelay = setTimeout(liveSearch, 250);
+  }
+
+  /** Updates the Search row and its results without leaving the keyboard. */
+  function liveSearch() {
+    var input = document.getElementById('search-input');
+    if (!input || App.screen !== 'browser' || !Browser.sections[0] || Browser.sections[0].id !== 'search') return;
+    Browser.query = input.value.trim();
+    var section = Browser.sections[0];
+    section.label = Browser.query ? 'Search: ' + Browser.query : 'Search';
+    section.channels = searchResults();
+    Browser.sectionIndex = 0;
+    Browser.catList.render();
+    openSection(0, 0);
+    if (!Browser.query) document.getElementById('section-sub').textContent = 'Type a channel name';
   }
 
   function openSection(index, position) {
@@ -1766,7 +1808,7 @@
     unlock: unlock,
     isLockedCat: isLockedCat,
     isHidden: isHidden,
-    logoHTML: logoHTML,
+    logoHTML: logoHTML, glyphHTML: glyphHTML,
     epgHTML: epgHTML,
     toggleFavorite: toggleFavorite,
     /** `back`: where BACK returns (Home); default the channel browser. */

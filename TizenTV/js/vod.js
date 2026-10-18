@@ -142,7 +142,7 @@
     var all = visibleItems(kind, lib, lib.items);
     var recent = all.slice().sort(function (a, b) { return b.added - a.added; }).slice(0, 120);
     var sections = [
-      { id: 'search', label: Lib.query ? 'Search: ' + Lib.query : 'Search', glyph: '⌕', items: visibleItems(kind, lib, searchItems(lib)) },
+      { id: 'search', label: Lib.query ? 'Search: ' + Lib.query : 'Search', glyph: 'search', items: visibleItems(kind, lib, searchItems(lib)) },
       { id: 'all', label: kind === 'movie' ? 'All Movies' : 'All Series', glyph: '▤', items: all },
       { id: 'resume', label: 'Continue Watching', glyph: '▶', items: visibleItems(kind, lib, resume) },
       { id: 'mylist', label: 'My List', glyph: '♥', items: visibleItems(kind, lib, mine) },
@@ -236,7 +236,7 @@
     Lib.cats = new UI.VList(document.getElementById('lib-cats'), 74, function (section, i, focused) {
       var count = section.id === 'search' ? '' : section.items.length;
       return '<div class="cat' + (i === Lib.sectionIndex ? ' selected' : '') + (focused ? ' focused' : '') + '">' +
-        '<span class="glyph">' + esc(section.glyph) + '</span><span class="label">' + esc(section.label) + '</span>' +
+        UI.glyphHTML(section.glyph) + '<span class="label">' + esc(section.label) + '</span>' +
         '<span class="count">' + count + '</span></div>';
     }, 12);
     Lib.grid = new UI.VList(document.getElementById('lib-grid'), POSTER_ROW, function (row, i) {

@@ -142,6 +142,7 @@ html.playing, body.playing, body.playing #app { background: transparent; }
 }
 .cat .count { margin-left: auto; font-size: 20px; color: var(--faint); }
 .cat .glyph { width: 30px; text-align: center; font-size: 24px; }
+.cat .glyph svg { display: block; margin: 0 auto; }
 .cat.selected { color: #fff; background: rgba(255,255,255,0.08); }
 .cat.focused { color: #000; background: #fff; transform: none; box-shadow: none; }
 .cat.focused .count { color: rgba(0,0,0,0.55); }
