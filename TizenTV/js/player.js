@@ -2,8 +2,8 @@
  * On the Samsung TV this uses Samsung's AVPlay (webapis.avplay), which plays MPEG-TS and HLS.
  * In a normal browser (for testing) it falls back to an HTML5 <video>.
  *
- * Providers usually allow only one or two connections and keep counting a closed stream for
- * a while, so a refused connection is retried with growing pauses instead of failing at once. */
+ * Some providers hang or refuse the TV's own player but answer known IPTV players at once, so each
+ * channel is tried with several player identities and both formats; the one that works is remembered. */
 (function (global) {
   'use strict';
 
@@ -11,11 +11,54 @@
     return !!(global.webapis && global.webapis.avplay);
   }
 
-  /** Seconds to wait before each "provider busy" retry (after TS and HLS were both tried once). */
-  var BUSY_DELAYS = [4, 8, 12, 16];
-  /** Safety net only: an attempt still not playing after this long counts as failed.
-   *  (0.1.5 used 12 s — this provider often needs longer, so every stream was cut off.) */
-  var ATTEMPT_TIMEOUT = 60000;
+  /** Identities the stream is requested with. Providers that refuse the TV's own player
+   *  (it hangs or fails) usually answer a known IPTV player at once — the iPhone app plays
+   *  instantly through VLC. '' = the TV's default identity. */
+  var AGENTS = [
+    { id: 'vlc', label: 'VLC', ua: 'VLC/3.0.21 LibVLC/3.0.21' },
+    { id: 'smarters', label: 'IPTV Smarters', ua: 'IPTVSmartersPro' },
+    { id: 'okhttp', label: 'okhttp', ua: 'okhttp/4.12.0' },
+    { id: 'tv', label: 'TV default', ua: '' }
+  ];
+  /** A try that shows no picture within this time is given up for the next identity/format. */
+  var ATTEMPT_TIMEOUT = 15000;
+  /** Reconnect pauses after a stream that was playing drops. */
+  var DROP_DELAYS = [3, 6, 10];
+  var MEMORY_KEY = 'veylo.tv.streamIdentity';
+
+  function remembered() {
+    try { return JSON.parse(global.localStorage.getItem(MEMORY_KEY) || 'null'); } catch (e) { return null; }
+  }
+  function remember(value) {
+    try { global.localStorage.setItem(MEMORY_KEY, JSON.stringify(value)); } catch (e) { /* storage blocked */ }
+  }
+  function agentByID(id) {
+    for (var i = 0; i < AGENTS.length; i++) if (AGENTS[i].id === id) return AGENTS[i];
+    return null;
+  }
+  function formatOf(url) { return /\.m3u8(\?|$)/i.test(url) ? 'HLS' : 'TS'; }
+
+  /** Ordered tries: the identity that worked last time first, then every identity × format. */
+  function buildPlan(url, altURL) {
+    var urls = [url];
+    if (altURL) urls.push(altURL);
+    var memory = remembered();
+    var agents = AGENTS.slice();
+    var plan = [];
+    if (memory) {
+      var known = agentByID(memory.agent);
+      if (known) {
+        agents = [known].concat(AGENTS.filter(function (a) { return a !== known; }));
+        // The format that worked first, with the remembered identity.
+        if (memory.format === 'HLS' && altURL && formatOf(altURL) === 'HLS') urls = [altURL, url];
+        if (memory.format === 'TS' && altURL && formatOf(altURL) === 'TS') urls = [altURL, url];
+      }
+    }
+    agents.forEach(function (agent) {
+      urls.forEach(function (u) { plan.push({ url: u, agent: agent, format: formatOf(u) }); });
+    });
+    return plan;
+  }
 
   var Player = {
     /** Called with ('loading' | 'buffering' | 'playing' | 'error' | 'retry', info). */
@@ -23,37 +66,37 @@
     current: null,
     retryTimer: null,
     attemptTimer: null,
-    /** Last AVPlay error name (shown small on the error screen to help diagnose). */
+    /** Last error name (shown small on the error screen to help diagnose). */
     lastError: '',
-    /** True once the alternate format (TS ↔ HLS) started faster this session; it is then tried first. */
-    preferAlt: false,
 
-    /** Plays `url`; on failure tries `altURL` (TS ↔ HLS), then retries while the provider is busy. */
     play: function (url, altURL) {
       Player.stop();
-      var first = url, second = altURL || '';
-      if (Player.preferAlt && second) { first = second; second = url; }
-      Player.current = { first: first, second: second, step: 0, busy: 0 };
+      Player.current = { plan: buildPlan(url, altURL), step: 0, log: [], drops: 0 };
       Player.lastError = '';
-      Player.open(first);
+      Player.open();
     },
 
-    open: function (url) {
+    /** The try being made right now (for the loading screen). */
+    attempt: function () {
+      var c = Player.current;
+      return c && c.plan[c.step];
+    },
+
+    open: function () {
       var current = Player.current;
-      if (current) {
-        current.url = url;
-        current.since = Date.now();
-        current.format = /\.m3u8(\?|$)/i.test(url) ? 'HLS' : 'TS';
-      }
+      if (!current) return;
+      var tryNow = current.plan[current.step];
+      current.since = Date.now();
+      current.format = tryNow.format;
       Player.onState('loading');
       clearTimeout(Player.attemptTimer);
       Player.attemptTimer = setTimeout(function () {
-        if (Player.current === current && !current.playing) Player.fail('TIMEOUT');
+        if (Player.current === current && !current.playing) Player.fail('NO_PICTURE_' + Math.round(ATTEMPT_TIMEOUT / 1000) + 'S');
       }, ATTEMPT_TIMEOUT);
       if (hasAVPlay()) {
-        Player.openAVPlay(url);
+        Player.openAVPlay(tryNow.url, tryNow.agent.ua);
       } else {
-        Player.openHTML5(url);
+        Player.openHTML5(tryNow.url);
       }
     },
 
@@ -63,48 +106,53 @@
       clearTimeout(Player.attemptTimer);
       if (!current.playing) {
         current.playing = true;
-        // The second format worked on its first try while the first failed: start with it next time.
-        if (current.step === 1 && current.busy === 0 && current.second) Player.preferAlt = !Player.preferAlt;
+        var tryNow = current.plan[current.step];
+        remember({ agent: tryNow.agent.id, format: tryNow.format });
+        current.log.push({ format: tryNow.format, agent: tryNow.agent.label, result: 'OK', seconds: Math.round((Date.now() - current.since) / 1000) });
       }
       Player.onState('playing');
     },
 
-    /** step 0 = first format, step 1 = other format, then BUSY_DELAYS retries with the first format.
-     *  A stream that was already playing and dropped (or "ended" — live streams don't end) reconnects
-     *  through the same retry path. */
     fail: function (reason) {
       if (reason) Player.lastError = String(reason);
       var current = Player.current;
       if (!current) return;
       clearTimeout(Player.attemptTimer);
       Player.stop(true);
+      var tryNow = current.plan[current.step];
+
+      // Was playing and dropped: reconnect with the same identity/format after a pause.
       if (current.playing) {
         current.playing = false;
-        current.step = 2;
-        if (!current.dropped) { current.dropped = true; current.busy = 0; }
-      }
-      if (current.step === 0 && current.second) {
-        current.step = 1;
-        Player.open(current.second);
+        if (current.drops < DROP_DELAYS.length) {
+          var seconds = DROP_DELAYS[current.drops];
+          current.drops += 1;
+          Player.onState('retry', { attempt: current.drops, total: DROP_DELAYS.length, seconds: seconds, dropped: true });
+          clearTimeout(Player.retryTimer);
+          Player.retryTimer = setTimeout(function () {
+            if (Player.current === current) Player.open();
+          }, seconds * 1000);
+          return;
+        }
+        Player.onState('error');
         return;
       }
-      if (current.busy < BUSY_DELAYS.length) {
-        var seconds = BUSY_DELAYS[current.busy];
-        current.busy += 1;
-        current.step = 2;
-        Player.onState('retry', { attempt: current.busy, total: BUSY_DELAYS.length, seconds: seconds, dropped: !!current.dropped });
+
+      current.log.push({ format: tryNow.format, agent: tryNow.agent.label, result: Player.lastError,
+        seconds: Math.round((Date.now() - current.since) / 1000) });
+      if (current.step + 1 < current.plan.length) {
+        current.step += 1;
+        // A short pause so the provider has let go of the refused try.
         clearTimeout(Player.retryTimer);
         Player.retryTimer = setTimeout(function () {
-          if (Player.current !== current) return;
-          // Alternate formats between busy retries.
-          Player.open(current.busy % 2 === 1 || !current.second ? current.first : current.second);
-        }, seconds * 1000);
+          if (Player.current === current) Player.open();
+        }, 800);
         return;
       }
       Player.onState('error');
     },
 
-    openAVPlay: function (url) {
+    openAVPlay: function (url, agent) {
       var av = global.webapis.avplay;
       // Callbacks from an older stream (fast zapping, retries) must not affect the new one.
       Player.gen = (Player.gen || 0) + 1;
@@ -122,10 +170,12 @@
           onerror: function (type) { if (live()) Player.fail(type || 'PLAYER_ERROR'); },
           onevent: function () {}
         });
-        // Providers that block the TV's browser engine get the same player identity as the API calls.
-        var agent = global.VeyloAPI && global.VeyloAPI.state && global.VeyloAPI.state.userAgent;
+        // The identity for this try (see AGENTS); '' keeps the TV's own.
         if (agent) {
-          try { av.setStreamingProperty('USER_AGENT', agent); } catch (e) { /* not supported on this model */ }
+          try { av.setStreamingProperty('USER_AGENT', agent); } catch (e) {
+            // Shown in the attempt log: if this fails, every identity is really the TV's own.
+            if (Player.current) Player.current.uaError = (e && (e.name || e.message)) || 'failed';
+          }
         }
         av.setDisplayRect(0, 0, 1920, 1080);
         try { av.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX'); } catch (e) { /* older TVs */ }

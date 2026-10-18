@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.1.7';
+  var VERSION = '0.1.8';
 
   // ---------- Keys ----------
   var K = {
@@ -975,27 +975,37 @@
       var box = document.getElementById('player-status');
       if (!box) return;
       clearInterval(this.loadTimer);
+      box.style.top = state === 'error' ? '18%' : '';
       if (state === 'buffering') {
         box.innerHTML = '<div class="spinner"></div>Buffering…';
       } else if (state === 'loading') {
         box.innerHTML = '<div class="spinner"></div>Loading…<div id="player-wait" style="font-size:22px;color:rgba(255,255,255,.55);margin-top:12px"></div>';
         var wait = function () {
           var c = Player.current, node = document.getElementById('player-wait');
-          if (!node || !c || !c.since) return;
-          node.textContent = c.format + ' · ' + Math.round((Date.now() - c.since) / 1000) + ' s';
+          var a = Player.attempt();
+          if (!node || !c || !c.since || !a) return;
+          node.textContent = 'Try ' + (c.step + 1) + '/' + c.plan.length + ' · ' + a.format + ' · ' + a.agent.label +
+            ' · ' + Math.round((Date.now() - c.since) / 1000) + ' s';
         };
         wait();
         this.loadTimer = setInterval(wait, 1000);
       } else if (state === 'retry') {
-        box.innerHTML = '<div class="spinner"></div>' +
-          (info.dropped ? 'Connection lost — reconnecting in ' : 'Provider is busy — trying again in ') +
+        box.innerHTML = '<div class="spinner"></div>Connection lost — reconnecting in ' +
           info.seconds + ' s (' + info.attempt + '/' + info.total + ')' +
-          '<div style="font-size:22px;color:rgba(255,255,255,.6);margin-top:12px">' +
-          (info.dropped ? 'The provider stopped sending this channel.' : 'Usually the previous channel is still counted for a moment.') + '</div>' +
+          '<div style="font-size:22px;color:rgba(255,255,255,.6);margin-top:12px">The provider stopped sending this channel.</div>' +
           '<div id="player-reason" style="font-size:22px;color:#ffd60a;margin-top:12px"></div>';
         this.checkConnections();
       } else if (state === 'error') {
-        var code = Player.lastError ? '<div style="font-size:18px;color:rgba(255,255,255,.4);margin-top:14px">' + esc(Player.lastError) + '</div>' : '';
+        // What every try did — read it off a photo of the TV.
+        var c = Player.current;
+        var code = '';
+        if (c && c.log && c.log.length) {
+          code = '<div class="attempts">' + c.log.slice(-8).map(function (l) {
+            return esc(l.format + ' · ' + l.agent + ' → ' + l.result + ' (' + l.seconds + ' s)');
+          }).join('<br>') + (c.uaError ? '<br>Identity not applied: ' + esc(c.uaError) : '') + '</div>';
+        } else if (Player.lastError) {
+          code = '<div class="attempts">' + esc(Player.lastError) + '</div>';
+        }
         box.innerHTML = 'This channel isn’t playing right now.<br><span style="font-size:24px;color:rgba(255,255,255,.6)">Press OK to retry · ▲▼ for another channel</span>' +
           '<div id="player-reason" style="font-size:24px;color:#ffd60a;margin-top:18px"></div>' + code;
         this.showOverlay(true);

@@ -302,3 +302,4 @@ html.playing, body.playing, body.playing #app { background: transparent; }
 .build { font-size: 18px; font-weight: 700; color: var(--faint); font-style: normal; letter-spacing: 0.5px; }
 .sidebar .brand .build { margin-left: 12px; align-self: flex-end; padding-bottom: 6px; }
 .player .top .build { color: rgba(255,255,255,0.6); }
+.player .status .attempts { font-size: 18px; line-height: 1.5; color: rgba(255,255,255,0.5); margin-top: 16px; }
