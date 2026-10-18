@@ -26,7 +26,7 @@
   function posterHTML(item, extraClass) {
     var fallback = '<div class="ptext">' + esc(item.title) + '</div>';
     return '<div class="pimg' + (extraClass || '') + '" data-fallback="' + esc(fallback) + '">' +
-      (item.poster ? '<img decoding="async" src="' + esc(item.poster) + '" onerror="this.parentNode.innerHTML=this.parentNode.getAttribute(\'data-fallback\')">' : fallback) +
+      (item.poster ? '<img decoding="async" loading="lazy" src="' + esc(item.poster) + '" onerror="this.parentNode.innerHTML=this.parentNode.getAttribute(\'data-fallback\')">' : fallback) +
       '</div>';
   }
 
@@ -383,7 +383,7 @@
       if (Lib.grid.index === 0) { Lib.lastFocus = 'grid'; setFocus('nav'); return; }
       Lib.grid.move(-1); applyCol(); return;
     }
-    if (key === K.DOWN) { Lib.grid.move(1); applyCol(); return; }
+    if (key === K.DOWN) { Lib.grid.move(UI.App.held > 6 ? 2 : 1); applyCol(); return; }
     if (key === K.CH_UP || key === K.CH_DOWN) { Lib.grid.move(key === K.CH_UP ? -2 : 2); applyCol(); return; }
     if (key === K.ENTER) {
       var item = currentItem();

@@ -243,7 +243,9 @@
   });
 
   global.VeyloGuide = {
-    get: get, onData: onData, nowNextHTML: nowNextHTML, hasGuide: hasGuide,
+    get: get, onData: onData,
+    /** Cached programmes only (no request). */
+    peek: function (channel) { reset(); return D.data[channel.key]; }, nowNextHTML: nowNextHTML, hasGuide: hasGuide,
     mount: mount, unmount: unmount, key: key, setFocused: setFocused,
     index: function () { return G && G.list ? G.list.index : 0; },
     active: function () { return !!G; }

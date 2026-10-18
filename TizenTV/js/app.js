@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.2.6';
+  var VERSION = '0.2.7';
 
   // ---------- Keys ----------
   var K = {
@@ -58,7 +58,7 @@
   function logoHTML(channel) {
     var fallback = '<div class="initials">' + initials(channel.title) + '</div>';
     if (!channel.logo) return '<div class="logo">' + fallback + '</div>';
-    return '<div class="logo"><img decoding="async" src="' + esc(channel.logo) + '" onerror="this.parentNode.innerHTML=this.parentNode.getAttribute(\'data-fallback\')"></div>'
+    return '<div class="logo"><img decoding="async" loading="lazy" src="' + esc(channel.logo) + '" onerror="this.parentNode.innerHTML=this.parentNode.getAttribute(\'data-fallback\')"></div>'
       .replace('<div class="logo">', '<div class="logo" data-fallback="' + esc(fallback) + '">');
   }
 
@@ -376,7 +376,7 @@
 
   VList.prototype.slide = function (animate) {
     var y = -(this.top - this.bufStart) * this.rowHeight;
-    this.inner.style.transition = animate ? '' : 'none';
+    this.inner.style.transition = animate && !App.held ? '' : 'none';
     this.inner.style.transform = 'translate3d(0,' + y + 'px,0)';
     this.inner.style.webkitTransform = 'translate3d(0,' + y + 'px,0)';
   };
@@ -490,6 +490,8 @@
     }
     if (event.repeat && App.lastKeyTime && Date.now() - App.lastKeyTime < 70) { event.preventDefault(); return; }
     App.lastKeyTime = Date.now();
+    // Held arrow: count repeats (lists speed up and skip animations while held).
+    App.held = event.repeat ? (App.held || 0) + 1 : 0;
     if (App.keyHandler) {
       var handled = App.keyHandler(event.keyCode, event);
       if (handled !== false) event.preventDefault();
@@ -846,7 +848,8 @@
     Browser.chList = new VList(document.getElementById('channels'), 112, function (channel, i, focused, y) {
       var fav = Store.isFavorite(channel.key);
       // What's on now, straight in the channel list (the TV guide lives here).
-      var guide = global.VeyloGuide && Browser.view !== 'guide' ? global.VeyloGuide.get(channel, rowOnScreen) : null;
+      // Only what's already known while scrolling; the rest is fetched once the list rests.
+      var guide = global.VeyloGuide && Browser.view !== 'guide' ? global.VeyloGuide.peek(channel) : null;
       var nn = guide ? global.VeyloGuide.nowNextHTML(guide) : '';
       return '<div class="row' + (focused ? ' focused' : '') + '" data-key="' + esc(channel.key) + '">' +
         '<div class="num">' + (i + 1) + '</div>' + logoHTML(channel) +
@@ -894,7 +897,7 @@
       box.innerHTML = '<div class="empty">' + message + '</div>';
     }
     if (Browser.view === 'guide') mountGuide(position || 0);
-    else updatePreview();
+    else { updatePreview(); scheduleVisibleEPG(); }
   }
 
   function rowOnScreen(channel) {
@@ -902,6 +905,12 @@
     if (!list || App.screen !== 'browser' || Browser.view === 'guide') return false;
     var at = list.items.indexOf(channel);
     return at >= list.top - 1 && at <= list.top + list.visibleCount() + 1;
+  }
+
+  /** NOW lines are fetched only after the list has rested 0.5 s (nothing loads while scrolling). */
+  function scheduleVisibleEPG() {
+    clearTimeout(Browser.epgRowsTimer);
+    Browser.epgRowsTimer = setTimeout(requestVisibleEPG, 500);
   }
 
   /** Asks the guide for the rows now on screen (rows slid into view weren't rebuilt). */
@@ -1083,7 +1092,7 @@
     if (Browser.focus === 'cats') {
       if (key === K.UP && Browser.catList.index === 0) { flushSection(); setBrowserFocus('nav'); return; }
       if (key === K.UP || key === K.DOWN) {
-        if (Browser.catList.move(key === K.UP ? -1 : 1)) {
+        if (Browser.catList.move((key === K.UP ? -1 : 1) * (App.held > 6 ? 2 : 1))) {
           if (!Browser.pendingSection) Browser.positions[section.id] = Browser.chList.index;
           // Load the channels only once the highlight rests on a category.
           clearTimeout(Browser.pendingSection);
@@ -1111,9 +1120,11 @@
     // Channel list
     if (key === K.UP && Browser.chList.index === 0) { setBrowserFocus('nav'); return; }
     if (key === K.UP || key === K.DOWN) {
-      if (Browser.chList.move(key === K.UP ? -1 : 1)) { schedulePreview(); requestVisibleEPG(); }
+      // Held ▲▼ speeds up: 1 row, then 2, then 4 per repeat.
+      var stepRows = App.held > 12 ? 4 : App.held > 4 ? 2 : 1;
+      if (Browser.chList.move(key === K.UP ? -stepRows : stepRows)) { schedulePreview(); scheduleVisibleEPG(); }
     } else if (key === K.CH_UP || key === K.CH_DOWN) {
-      if (Browser.chList.move(key === K.CH_UP ? -Browser.chList.visibleCount() : Browser.chList.visibleCount())) { schedulePreview(); requestVisibleEPG(); }
+      if (Browser.chList.move(key === K.CH_UP ? -Browser.chList.visibleCount() : Browser.chList.visibleCount())) { schedulePreview(); scheduleVisibleEPG(); }
     } else if (key === K.LEFT || key === K.BACK || key === K.ESC) {
       setBrowserFocus('cats');
     } else if (key === K.ENTER || key === K.PLAY || key === K.PLAY_PAUSE) {

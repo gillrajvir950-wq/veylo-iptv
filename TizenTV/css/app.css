@@ -56,7 +56,7 @@ html.playing, body.playing, body.playing #app { background: transparent; }
 }
 
 /* Focus: every remote-selectable element */
-.focusable { transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease; }
+.focusable { transition: none; }
 .focusable.focused {
   box-shadow: 0 0 0 4px #fff, 0 12px 40px rgba(0, 0, 0, 0.6);
   transform: scale(1.03);
@@ -421,12 +421,12 @@ html.playing, body.playing, body.playing #app { background: transparent; }
 
 /* ---------- Home ---------- */
 .home { position: absolute; top: 100px; left: 0; right: 0; bottom: 0; overflow: hidden; }
-.home-inner { padding: 30px 0 0 60px; will-change: transform; transition: transform 0.15s ease-out; }
+.home-inner { padding: 30px 0 0 60px; will-change: transform; }
 .shelf { margin-bottom: 34px; }
 .shelf h2 { font-size: 30px; font-weight: 800; margin: 0 0 16px 4px; }
 .shelf-track { overflow: hidden; height: 400px; padding: 8px 0 0 6px; }
 .shelf.channels .shelf-track { height: 196px; }
-.shelf-inner { display: flex; will-change: transform; transition: transform 0.12s ease-out; }
+.shelf-inner { display: flex; will-change: transform; }
 .hcard { flex: none; position: relative; }
 .hcard + .hcard { margin-left: 26px; }
 .hcard.ch { width: 260px; }
@@ -514,3 +514,7 @@ html.previewing .browser, html.previewing .content, html.previewing .content-bod
 .nn-bar { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.15); margin-top: 7px; width: 70%; overflow: hidden; }
 .nn-bar > div { height: 100%; background: var(--accent); }
 .preview-label { font-size: 17px; color: var(--faint); margin-top: 8px; height: 22px; }
+
+/* Rows and cards are laid out on their own (a change inside one never re-lays out the page). */
+.row, .cat, .chp-row, .ep, .grow, .poster, .hcard { contain: layout; }
+.logo img, .pimg img { image-rendering: auto; }
