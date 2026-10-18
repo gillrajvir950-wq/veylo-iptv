@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.1.10';
+  var VERSION = '0.2.0';
 
   // ---------- Keys ----------
   var K = {
@@ -72,6 +72,141 @@
   }
 
   function clamp(value, low, high) { return Math.max(low, Math.min(high, value)); }
+
+  // ---------- Top menu: Live TV · Movies · Series · Settings ----------
+  var TABS = [
+    { id: 'live', label: 'Live TV' },
+    { id: 'movies', label: 'Movies' },
+    { id: 'series', label: 'Series' },
+    { id: 'settings', label: 'Settings' }
+  ];
+  var Nav = { active: 'live', index: 0, focused: false };
+
+  function navHTML(active) {
+    Nav.active = active;
+    Nav.focused = false;
+    var who = App.session && App.session.profile ? (App.session.profile.name || '') : '';
+    return '<div class="navbar"><div class="brand"><img src="brand.png"><span>veylo</span></div>' +
+      '<div class="nav-tabs">' + TABS.map(function (t) {
+        return '<div class="nav-tab' + (t.id === active ? ' active' : '') + '" data-tab="' + t.id + '">' + t.label + '</div>';
+      }).join('') + '</div>' +
+      '<div class="nav-right"><span class="who">' + esc(who) + '</span><em class="build">v' + VERSION + '</em>' +
+      '<span class="clock" id="nav-clock">' + clock(Date.now()) + '</span></div></div>';
+  }
+
+  function navRender() {
+    var tabs = document.querySelectorAll('.navbar .nav-tab');
+    Array.prototype.forEach.call(tabs, function (node, i) {
+      node.classList.toggle('focused', Nav.focused && i === Nav.index);
+    });
+  }
+
+  function navFocus(on) {
+    Nav.focused = on;
+    if (on) TABS.forEach(function (t, i) { if (t.id === Nav.active) Nav.index = i; });
+    navRender();
+  }
+
+  /** Keys while the menu is focused. `down` gives focus back to the page. */
+  function navKey(key, down) {
+    if (key === K.LEFT || key === K.RIGHT) {
+      Nav.index = clamp(Nav.index + (key === K.LEFT ? -1 : 1), 0, TABS.length - 1);
+      navRender();
+      return;
+    }
+    if (key === K.ENTER) {
+      var tab = TABS[Nav.index].id;
+      if (tab === Nav.active) { navFocus(false); down(); } else openTab(tab);
+      return;
+    }
+    if (key === K.DOWN) { navFocus(false); down(); return; }
+    if (key === K.BACK || key === K.ESC) { askExit(); return; }
+    return false;
+  }
+
+  function askExit() {
+    var now = Date.now();
+    if (now - App.lastBack < 2000) { exitApp(); return; }
+    App.lastBack = now;
+    toast('Press Back again to exit Veylo');
+  }
+
+  function openTab(id) {
+    if (!App.session) { showLogin(); return; }
+    if (id === 'live') { Browser.focus = 'cats'; showBrowser(); }
+    else if (id === 'settings') showSettings();
+    else if (global.VeyloLibrary) global.VeyloLibrary.show(id === 'movies' ? 'movie' : 'series');
+  }
+
+  setInterval(function () {
+    var node = document.getElementById('nav-clock');
+    if (node) node.textContent = clock(Date.now());
+  }, 10000);
+
+  // ---------- Countries (from the provider's own category names) ----------
+  var COUNTRY_NAMES = {
+    IN: 'India', PK: 'Pakistan', BD: 'Bangladesh', LK: 'Sri Lanka', NP: 'Nepal', AF: 'Afghanistan',
+    UK: 'United Kingdom', IE: 'Ireland', US: 'USA', CA: 'Canada', AU: 'Australia', NZ: 'New Zealand',
+    DE: 'Germany', AT: 'Austria', CH: 'Switzerland', FR: 'France', BE: 'Belgium', NL: 'Netherlands',
+    ES: 'Spain', PT: 'Portugal', IT: 'Italy', PL: 'Poland', TR: 'Turkey', GR: 'Greece', RO: 'Romania',
+    BG: 'Bulgaria', HU: 'Hungary', CZ: 'Czechia', SK: 'Slovakia', SE: 'Sweden', NO: 'Norway', DK: 'Denmark',
+    FI: 'Finland', RU: 'Russia', UA: 'Ukraine', AL: 'Albania', EXYU: 'Ex-Yu', AR: 'Arabic', AE: 'UAE',
+    SA: 'Saudi Arabia', QA: 'Qatar', KW: 'Kuwait', EG: 'Egypt', MA: 'Morocco', DZ: 'Algeria', TN: 'Tunisia',
+    IL: 'Israel', IR: 'Iran', IQ: 'Iraq', KU: 'Kurdish', NG: 'Nigeria', ZA: 'South Africa', KE: 'Kenya',
+    AFR: 'Africa', BR: 'Brazil', MX: 'Mexico', LAT: 'Latino', CO: 'Colombia', CL: 'Chile', PH: 'Philippines',
+    ID: 'Indonesia', MY: 'Malaysia', SG: 'Singapore', TH: 'Thailand', VN: 'Vietnam', CN: 'China',
+    HK: 'Hong Kong', TW: 'Taiwan', JP: 'Japan', KR: 'Korea', CAR: 'Caribbean'
+  };
+  var COUNTRY_ALIASES = { GB: 'UK', USA: 'US', UAE: 'AE', KSA: 'SA', ARB: 'AR', ARA: 'AR', YU: 'EXYU', IND: 'IN', PAK: 'PK', CAN: 'CA', GER: 'DE', DEU: 'DE', FRA: 'FR', ESP: 'ES', ITA: 'IT', TUR: 'TR', POR: 'PT', NED: 'NL', AUS: 'AU', BAN: 'BD' };
+  var COUNTRY_WORDS = [
+    [/\b(INDIA|INDIAN|HINDI|PUNJABI|TAMIL|TELUGU|MALAYALAM|MARATHI|BENGALI|BANGLA INDIA|GUJARATI|KANNADA|BHOJPURI)\b/, 'IN'],
+    [/\b(PAKISTAN|PAKISTANI|URDU)\b/, 'PK'], [/\bBANGLADESH\b/, 'BD'], [/\bNEPAL\b/, 'NP'], [/\bSRI ?LANKA\b/, 'LK'],
+    [/\b(UNITED KINGDOM|BRITISH|ENGLAND)\b/, 'UK'], [/\b(USA|AMERICA|AMERICAN)\b/, 'US'], [/\bCANADA\b/, 'CA'],
+    [/\bAUSTRALIA\b/, 'AU'], [/\b(ARAB|ARABIC)\b/, 'AR'], [/\b(GERMANY|DEUTSCH)\b/, 'DE'], [/\bFRANCE\b/, 'FR'],
+    [/\b(SPAIN|ESPANA)\b/, 'ES'], [/\bITALY\b/, 'IT'], [/\bTURK(EY|ISH)\b/, 'TR'], [/\bAFRICA\b/, 'AFR'],
+    [/\b(LATINO|LATIN)\b/, 'LAT'], [/\bCARIBBEAN\b/, 'CAR'], [/\bAFGHAN/, 'AF']
+  ];
+
+  /** "IN| SPORTS", "|UK| News", "USA: Movies", "Hindi Movies" → country code ('' if none). */
+  function countryOf(name) {
+    var upper = String(name || '').toUpperCase();
+    var m = /^[\s|\[\(]*([A-Z]{2,4})[\s]*[|\]\):\-•]/.exec(upper);
+    if (m) {
+      var code = COUNTRY_ALIASES[m[1]] || m[1];
+      if (COUNTRY_NAMES[code]) return code;
+    }
+    for (var i = 0; i < COUNTRY_WORDS.length; i++) if (COUNTRY_WORDS[i][0].test(upper)) return COUNTRY_WORDS[i][1];
+    return '';
+  }
+
+  /** Countries in the provider's category order, each with its categories and channels;
+   *  null when the provider's names don't say (then the plain category list is shown). */
+  function buildCountries(categories) {
+    var byCode = {}, order = [], covered = 0;
+    categories.forEach(function (c) {
+      var code = countryOf(c.name);
+      if (!code) {
+        // Fall back to the channels' own prefixes ("UK: BBC One") when most of them agree.
+        var votes = {}, best = '', bestCount = 0;
+        c.channels.slice(0, 60).forEach(function (ch) {
+          var v = countryOf(ch.name);
+          if (!v) return;
+          votes[v] = (votes[v] || 0) + 1;
+          if (votes[v] > bestCount) { bestCount = votes[v]; best = v; }
+        });
+        if (best && bestCount >= Math.min(c.channels.length, 60) * 0.6) code = best;
+      }
+      if (code) covered += 1;
+      code = code || 'OTHER';
+      if (!byCode[code]) { byCode[code] = { code: code, name: COUNTRY_NAMES[code] || 'Other', categories: [], channels: [] }; order.push(code); }
+      byCode[code].categories.push(c);
+      byCode[code].channels = byCode[code].channels.concat(c.channels);
+    });
+    var real = order.filter(function (c) { return c !== 'OTHER'; });
+    if (real.length < 2 || covered < categories.length * 0.3) return null;
+    if (byCode.OTHER) { order = real.concat(['OTHER']); }
+    return order.map(function (code) { return byCode[code]; });
+  }
 
   // ---------- Virtual list (handles thousands of rows) ----------
   // A buffer of rows (a few screens' worth) is built at once and slid with a GPU transform;
@@ -218,9 +353,21 @@
     }
   });
 
+  // In the background (Home, another source) the stream is stopped so it doesn't hold the
+  // provider's connection or download data; it starts again when Veylo comes back.
   document.addEventListener('visibilitychange', function () {
-    if (App.screen !== 'player') return;
-    if (document.hidden) Player.suspend(); else Player.restore();
+    if (App.screen === 'player') {
+      if (document.hidden) {
+        PlayerScreen.suspended = true;
+        clearTimeout(PlayerScreen.tuneTimer);
+        Player.stop();
+      } else if (PlayerScreen.suspended) {
+        PlayerScreen.suspended = false;
+        PlayerScreen.tune(PlayerScreen.index, true);
+      }
+      return;
+    }
+    if (App.onVisibility) App.onVisibility(document.hidden);
   });
 
   // ---------- Simple focus manager for forms (login, settings) ----------
@@ -392,9 +539,12 @@
         profile: saved,
         channels: result.channels,
         categories: result.categories,
+        countries: buildCountries(result.categories),
         client: result.client || null,
         account: result.account || null
       };
+      // Favorites, recents, My List and resume points are kept per account.
+      Store.setScope(saved.id || ('host:' + Store.hostOf(profile.server || profile.playlistURL) + '|' + (profile.username || '')));
       App.byKey = {};
       result.channels.forEach(function (c) { App.byKey[c.key] = c; });
       Browser.reset();
@@ -427,12 +577,17 @@
     numberBuffer: '',
     numberTimer: null,
 
+    level: 'top',     // 'top' | 'country'
+    country: null,    // country object while level === 'country'
+
     reset: function () {
       this.sectionIndex = 0;
       this.selected = 0;
       this.focus = 'list';
       this.query = '';
       this.positions = {};
+      this.level = 'top';
+      this.country = null;
     }
   };
 
@@ -446,11 +601,27 @@
       { id: 'favorites', label: 'Favorites', glyph: '♥', channels: favs },
       { id: 'recent', label: 'Recently Watched', glyph: '↺', channels: recents }
     ];
-    s.categories.forEach(function (c, i) {
-      sections.push({ id: 'c' + i, label: API.title(c.name), glyph: '', channels: c.channels });
+    if (s.countries && Browser.level === 'country' && Browser.country) {
+      var country = Browser.country;
+      var inside = [
+        { id: 'back', label: 'All countries', glyph: '‹', type: 'back', channels: [] },
+        { id: 'cn:' + country.code, label: 'All ' + country.name, glyph: country.code === 'OTHER' ? '…' : country.code, code: true, channels: country.channels }
+      ];
+      country.categories.forEach(function (c) {
+        inside.push({ id: 'c:' + c.name, label: API.title(c.name), glyph: '', channels: c.channels });
+      });
+      return inside;
+    }
+    if (s.countries) {
+      s.countries.forEach(function (country) {
+        sections.push({ id: 'country:' + country.code, label: country.name, glyph: country.code === 'OTHER' ? '…' : country.code,
+          code: true, type: 'country', country: country, channels: country.channels });
+      });
+      return sections;
+    }
+    s.categories.forEach(function (c) {
+      sections.push({ id: 'c:' + c.name, label: API.title(c.name), glyph: '', channels: c.channels });
     });
-    sections.push({ id: 'accounts', label: 'Accounts', glyph: '◉', channels: [] });
-    sections.push({ id: 'settings', label: 'Settings', glyph: '⚙', channels: [] });
     return sections;
   }
 
@@ -470,12 +641,13 @@
     Browser.sections = buildSections();
     if (Browser.selected === 0 && !Browser.query) Browser.selected = 1;
     if (Browser.sectionIndex === 0 && !Browser.query) Browser.sectionIndex = 1;
+    if (Browser.sectionIndex >= Browser.sections.length) Browser.sectionIndex = 1;
+    if (Browser.focus === 'nav') Browser.focus = 'cats';
 
     var html =
-      '<div class="backdrop"></div>' +
+      '<div class="backdrop"></div>' + navHTML('live') +
       '<div class="browser">' +
         '<div class="sidebar">' +
-          '<div class="brand"><img src="brand.png"><span>veylo</span><em class="build">v' + VERSION + '</em></div>' +
           '<input class="search-input" id="search-input" type="text" autocomplete="off">' +
           '<div class="vlist" id="cats"><div class="vlist-inner"></div></div>' +
         '</div>' +
@@ -486,12 +658,12 @@
             '<div class="details"><div class="preview" id="preview"></div></div>' +
           '</div>' +
           '<div class="hints">' +
+            '<span><span class="key">▲</span>Menu</span>' +
             '<span><span class="key">OK</span>Play</span>' +
             '<span><span class="key">◀ ▶</span>Categories / Channels</span>' +
             '<span><span class="key yellow">&nbsp;</span>Favorite</span>' +
             '<span><span class="key green">&nbsp;</span>Accounts</span>' +
-            '<span><span class="key">0-9</span>Channel number</span>' +
-            '<span><span class="key">BACK</span>' + (Browser.focus === 'list' ? 'Categories' : 'Exit') + '</span>' +
+            '<span><span class="key">BACK</span>' + (Browser.focus === 'list' ? 'Categories' : 'Menu') + '</span>' +
           '</div>' +
         '</div>' +
       '</div>';
@@ -499,11 +671,10 @@
     setScreen('browser', html, browserKey);
 
     Browser.catList = new VList(document.getElementById('cats'), 74, function (section, i, focused, y) {
-      var count = section.id === 'accounts' ? Store.providers().length
-        : section.id === 'settings' || section.id === 'search' ? '' : section.channels.length;
+      var count = section.id === 'search' || section.type === 'back' ? '' : section.channels.length;
       return '<div class="cat' + (i === Browser.sectionIndex ? ' selected' : '') + (focused ? ' focused' : '') +
-        '">' +
-        '<span class="glyph">' + section.glyph + '</span>' +
+        (section.type === 'back' ? ' back' : '') + '">' +
+        '<span class="glyph' + (section.code ? ' code' : '') + '">' + esc(section.glyph) + '</span>' +
         '<span class="label">' + esc(section.label) + '</span>' +
         '<span class="count">' + count + '</span></div>';
     }, 12);
@@ -538,7 +709,7 @@
     var section = Browser.sections[index];
     document.getElementById('section-title').textContent =
       section.id === 'search' ? (Browser.query ? 'Results for “' + Browser.query + '”' : 'Search') : section.label;
-    var sub = section.id === 'settings' || section.id === 'accounts' ? 'Press OK to open'
+    var sub = section.type === 'back' ? 'Press OK to go back'
       : section.id === 'search' && !Browser.query ? 'Press OK to type'
       : section.channels.length.toLocaleString() + ' channels';
     document.getElementById('section-sub').textContent = sub;
@@ -549,10 +720,7 @@
         favorites: 'No favorites yet.<br>Press the <b>yellow</b> button on any channel to add it here.',
         recent: 'Channels you watch will show up here.',
         search: Browser.query ? 'Nothing found.' : 'Press OK, type a channel name and press Done.',
-        accounts: 'Watching: <b>' + esc((App.session.profile && App.session.profile.name) || 'Provider') + '</b><br>' +
-          'Press OK to switch accounts or add another one.<br>' +
-          '<span style="font-size:22px">Tip: the <b style="color:#30d158">green</b> button opens Accounts from anywhere.</span>',
-        settings: 'Change the stream format, see your subscription or sign out.<br>Press OK to open.'
+        back: 'Press OK to see all countries again.'
       }[section.id] || 'No channels here.';
       box.innerHTML = '<div class="empty">' + message + '</div>';
     }
@@ -578,13 +746,15 @@
 
   function setBrowserFocus(where) {
     flushSection();
+    if (where !== 'nav') Browser.lastFocus = where;
+    navFocus(where === 'nav');
     Browser.focus = where;
     Browser.catList.focused = where === 'cats';
     Browser.chList.focused = where === 'list';
     Browser.catList.render();
     if (Browser.chList.items.length) Browser.chList.render();
     var hint = document.querySelector('.hints > span:last-child');
-    if (hint) hint.innerHTML = '<span class="key">BACK</span>' + (where === 'list' ? 'Categories' : 'Exit');
+    if (hint) hint.innerHTML = '<span class="key">BACK</span>' + (where === 'list' ? 'Categories' : where === 'nav' ? 'Exit' : 'Menu');
   }
 
   function updatePreview() {
@@ -635,12 +805,38 @@
     return html;
   }
 
+  function enterCountry(country) {
+    Browser.positions[Browser.sections[Browser.sectionIndex].id] = Browser.chList.index;
+    Browser.level = 'country';
+    Browser.country = country;
+    Browser.sections = buildSections();
+    Browser.catList.setItems(Browser.sections, 1);
+    openSection(1, Browser.positions[Browser.sections[1].id] || 0);
+    Browser.catList.render();
+  }
+
+  function leaveCountry() {
+    var code = Browser.country && Browser.country.code;
+    Browser.level = 'top';
+    Browser.country = null;
+    Browser.sections = buildSections();
+    var at = 1;
+    Browser.sections.forEach(function (s, i) { if (s.id === 'country:' + code) at = i; });
+    Browser.catList.setItems(Browser.sections, at);
+    openSection(at, Browser.positions[Browser.sections[at].id] || 0);
+    Browser.catList.render();
+  }
+
   function browserKey(key) {
+    if (Browser.focus === 'nav') {
+      return navKey(key, function () { setBrowserFocus(Browser.lastFocus || 'cats'); });
+    }
     var section = Browser.sections[Browser.sectionIndex];
     if (key >= 48 && key <= 57 && Browser.chList.items.length) { numberEntry(key - 48); return; }
     if (key === K.GREEN) { showAccounts(); return; }
 
     if (Browser.focus === 'cats') {
+      if (key === K.UP && Browser.catList.index === 0) { flushSection(); setBrowserFocus('nav'); return; }
       if (key === K.UP || key === K.DOWN) {
         if (Browser.catList.move(key === K.UP ? -1 : 1)) {
           if (!Browser.pendingSection) Browser.positions[section.id] = Browser.chList.index;
@@ -656,19 +852,18 @@
         if (Browser.chList.items.length) setBrowserFocus('list');
       } else if (key === K.ENTER) {
         if (section.id === 'search') { openSearch(); return; }
-        if (section.id === 'settings') { showSettings(); return; }
-        if (section.id === 'accounts') { showAccounts(); return; }
+        if (section.type === 'back') { leaveCountry(); return; }
+        if (section.type === 'country') { enterCountry(section.country); return; }
         if (Browser.chList.items.length) setBrowserFocus('list');
       } else if (key === K.BACK || key === K.ESC) {
-        var now = Date.now();
-        if (now - App.lastBack < 2000) { exitApp(); return; }
-        App.lastBack = now;
-        toast('Press Back again to exit Veylo');
+        if (Browser.level === 'country') { leaveCountry(); return; }
+        setBrowserFocus('nav');
       } else return false;
       return;
     }
 
     // Channel list
+    if (key === K.UP && Browser.chList.index === 0) { setBrowserFocus('nav'); return; }
     if (key === K.UP || key === K.DOWN) {
       if (Browser.chList.move(key === K.UP ? -1 : 1)) schedulePreview();
     } else if (key === K.CH_UP || key === K.CH_DOWN) {
@@ -841,8 +1036,7 @@
     var providers = Store.providers().sort(function (a, b) { return (b.lastUsed || 0) - (a.lastUsed || 0); });
     var acc = s && s.account;
     var html =
-      '<div class="backdrop"></div><div class="settings">' +
-      '<div class="brand"><img src="brand.png"><span>veylo</span></div>' +
+      '<div class="backdrop"></div>' + navHTML('settings') + '<div class="settings">' +
       '<h1>Settings</h1>' +
       '<div class="columns"><div>' +
         '<div class="group"><h3>ACCOUNTS</h3>' +
@@ -854,6 +1048,7 @@
           '<div class="item focusable" data-action="accounts">Manage accounts<span class="value">' + providers.length + ' saved</span></div>' +
           '<div class="item focusable" data-action="add">＋ Add account</div>' +
         '</div>' +
+        '<div class="group"><h3>ABOUT</h3><div class="item">Version<span class="value">Veylo TV ' + VERSION + '</span></div></div>' +
       '</div><div>' +
         '<div class="group"><h3>PLAYBACK</h3>' +
           '<div class="item focusable" data-action="engine">Player<span class="value">' +
@@ -870,14 +1065,15 @@
           (s && s.profile && s.profile.id ? '<div class="item focusable" data-action="remove">Remove this provider from the TV</div>' : '') +
           '<div class="item focusable" data-action="signout">Sign out</div>' +
         '</div>' +
-        '<div class="group"><h3>ABOUT</h3><div class="item">Version<span class="value">' + VERSION + '</span></div></div>' +
       '</div></div></div>';
 
     setScreen('settings', html, function (key) {
       if (key === K.UP || key === K.DOWN || key === K.LEFT || key === K.RIGHT) { focus.move(key); return; }
-      if (key === K.BACK || key === K.ESC) { showBrowser(); return; }
+      if (key === K.BACK || key === K.ESC) { Browser.focus = 'cats'; showBrowser(); return; }
       if (key !== K.ENTER) return false;
       var node = focus.current();
+      var tab = node && node.getAttribute('data-tab');
+      if (tab) { if (tab !== 'settings') openTab(tab); return; }
       var action = node && node.getAttribute('data-action');
       if (action === 'switch') {
         var id = node.getAttribute('data-id');
@@ -907,7 +1103,10 @@
         showLogin();
       }
     });
-    var focus = new FormFocus('.settings .focusable');
+    var focus = new FormFocus('.navbar .nav-tab, .settings .focusable');
+    // Start on the first setting, not on the menu.
+    focus.items.forEach(function (node, i) { if (focus.index === 0 && node.classList.contains('focusable')) focus.index = i; });
+    focus.apply();
   }
 
   // ---------- Player ----------
@@ -936,7 +1135,7 @@
       var start = function () {
         if (self.lineup[self.index] !== channel || App.screen !== 'player') return;
         Store.addRecent(channel.key);
-        Player.play(channel.url, channel.altURL, { key: channel.key, uhd: channel.quality === '4K' });
+        Player.play(channel.url, channel.altURL, { key: Store.scope + '|' + channel.key, uhd: channel.quality === '4K' });
         self.loadEPG();
       };
       if (immediate) start(); else this.tuneTimer = setTimeout(start, 700);
@@ -1141,12 +1340,21 @@
   // ---------- Start ----------
   function start() {
     registerKeys();
+    if (global.VeyloEngine && global.VeyloEngine.cleanupTemp) global.VeyloEngine.cleanupTemp();
     var active = Store.active();
     if (active) connect(active, true, null, 3);
     else showLogin();
   }
 
   global.VeyloApp = { start: start, version: VERSION };
+  /** Shared pieces for the Movies & Series screens (js/vod.js). */
+  global.VeyloUI = {
+    K: K, App: App, Nav: Nav, esc: esc, clock: clock, clamp: clamp, toast: toast,
+    VList: VList, FormFocus: FormFocus, setScreen: setScreen,
+    navHTML: navHTML, navKey: navKey, navFocus: navFocus, openTab: openTab, askExit: askExit,
+    showBrowser: function () { Browser.focus = 'cats'; showBrowser(); },
+    showAccounts: function () { showAccounts(); }
+  };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
 })(window);

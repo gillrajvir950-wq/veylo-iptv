@@ -173,6 +173,7 @@
       clearTimeout(Player.attemptTimer);
       if (!current.playing) {
         current.playing = true;
+        current.playingSince = Date.now();
         var tryNow = current.plan[current.step];
         remember({ agent: tryNow.agent.id, format: tryNow.format }, current.key);
         current.log.push({ format: tryNow.format, agent: tryNow.agent.label, result: 'OK', seconds: Math.round((Date.now() - current.since) / 1000) });
@@ -191,6 +192,8 @@
       // Was playing and dropped: reconnect with the same identity/format after a pause.
       if (current.playing) {
         current.playing = false;
+        // A stream that ran fine for a minute starts its reconnect count afresh.
+        if (Date.now() - (current.playingSince || 0) > 60000) current.drops = 0;
         if (current.drops < DROP_DELAYS.length) {
           var seconds = DROP_DELAYS[current.drops];
           current.drops += 1;
@@ -278,11 +281,11 @@
 
     togglePause: function () {
       if (Player.engine) {
-        var v = Player.engine.video;
-        if (!v) return false;
-        if (v.paused) { v.play(); return false; }
-        v.pause();
-        return true;
+        // Live pause: freeze the picture and disconnect; resume reconnects at the live point.
+        if (!Player.engine.frozen) { Player.engine.freeze(); return true; }
+        var c = Player.current;
+        if (c) { Player.stop(true); c.playing = false; Player.open(); }
+        return false;
       }
       if (hasAVPlay()) {
         var av = global.webapis.avplay;

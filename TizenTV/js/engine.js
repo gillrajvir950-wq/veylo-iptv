@@ -193,6 +193,59 @@
     return best;
   }
 
+  /** Where a PSI table starts inside a packet that begins a section (after any adaptation field). */
+  function sectionStart(bytes, i) {
+    var offset = i + 4;
+    var afc = (bytes[i + 3] >> 4) & 3;
+    if (afc & 2) offset += 1 + bytes[i + 4];
+    if (!(afc & 1)) return -1;
+    return offset + 1 + bytes[offset];   // pointer field
+  }
+
+  /** Elementary streams of the first program ([{type, pid}]) from PAT + PMT, or null if not seen yet. */
+  function programStreams(bytes) {
+    var pmtPID = -1, i, t;
+    for (i = 0; i + PACKET <= bytes.byteLength && pmtPID < 0; i += PACKET) {
+      if (bytes[i] !== 0x47 || !(bytes[i + 1] & 0x40)) continue;
+      if ((((bytes[i + 1] & 0x1f) << 8) | bytes[i + 2]) !== 0) continue;
+      t = sectionStart(bytes, i);
+      if (t < 0 || t + 12 > i + PACKET || bytes[t] !== 0x00) continue;
+      var patEnd = Math.min(t + 3 + (((bytes[t + 1] & 0x0f) << 8) | bytes[t + 2]) - 4, i + PACKET);
+      for (var p = t + 8; p + 4 <= patEnd; p += 4) {
+        if (((bytes[p] << 8) | bytes[p + 1]) !== 0) { pmtPID = ((bytes[p + 2] & 0x1f) << 8) | bytes[p + 3]; break; }
+      }
+    }
+    if (pmtPID < 0) return null;
+    for (i = 0; i + PACKET <= bytes.byteLength; i += PACKET) {
+      if (bytes[i] !== 0x47 || !(bytes[i + 1] & 0x40)) continue;
+      if ((((bytes[i + 1] & 0x1f) << 8) | bytes[i + 2]) !== pmtPID) continue;
+      t = sectionStart(bytes, i);
+      if (t < 0 || t + 12 > i + PACKET || bytes[t] !== 0x02) continue;
+      var end = Math.min(t + 3 + (((bytes[t + 1] & 0x0f) << 8) | bytes[t + 2]) - 4, i + PACKET);
+      var s = t + 12 + (((bytes[t + 10] & 0x0f) << 8) | bytes[t + 11]);
+      var streams = [];
+      while (s + 5 <= end) {
+        streams.push({ type: bytes[s], pid: ((bytes[s + 1] & 0x1f) << 8) | bytes[s + 2] });
+        s += 5 + (((bytes[s + 3] & 0x0f) << 8) | bytes[s + 4]);
+      }
+      return streams;
+    }
+    return null;
+  }
+
+  var VIDEO_TYPES = { 0x01: 'MPEG1_VIDEO', 0x02: 'MPEG2_VIDEO', 0x10: 'MPEG4_VIDEO', 0x1B: 'H264', 0x24: 'HEVC_VIDEO', 0x27: 'HEVC_VIDEO', 0x42: 'AVS_VIDEO', 0xEA: 'VC1_VIDEO' };
+  var AUDIO_TYPES = { 0x03: 'MP2_AUDIO', 0x04: 'MP2_AUDIO', 0x0F: 'AAC', 0x11: 'AAC', 0x81: 'AC3_AUDIO', 0x87: 'EAC3_AUDIO', 0x82: 'DTS_AUDIO' };
+
+  /** What the engine can't play (mux.js: H.264 + AAC only) → reason, so AVPlay is tried at once. */
+  function unsupportedReason(streams) {
+    var video = streams.filter(function (s) { return VIDEO_TYPES[s.type]; });
+    var audio = streams.filter(function (s) { return AUDIO_TYPES[s.type]; });
+    var h264 = video.filter(function (s) { return s.type === 0x1B; })[0];
+    if (!h264) return video.length ? VIDEO_TYPES[video[0].type] : 'NO_VIDEO';
+    if (audio.length && !audio.some(function (s) { return AUDIO_TYPES[s.type] === 'AAC'; })) return AUDIO_TYPES[audio[0].type];
+    return '';
+  }
+
   /** First offset where three sync bytes line up 188 apart. */
   function syncOffset(bytes) {
     for (var i = 0; i < Math.min(bytes.byteLength - PACKET * 2, PACKET * 4); i++) {
@@ -267,10 +320,24 @@
       this.pending = this.pending.subarray(offset);
       this.synced = true;
     }
+    // Look at the programme table first: HEVC video or MP2/AC3-only audio (common on Indian
+    // channels) go straight to Samsung's player instead of a silent or blank picture here.
+    if (!this.checked && this.pending.byteLength > PACKET * 20) {
+      var streams = programStreams(this.pending);
+      if (streams) {
+        this.checked = true;
+        var reason = unsupportedReason(streams);
+        if (reason) { this.fail(reason); return; }
+        var h264 = streams.filter(function (s) { return s.type === 0x1B; })[0];
+        if (h264) this.videoPID = h264.pid;
+      } else if (this.pending.byteLength > 1024 * 1024) {
+        this.checked = true;   // no table seen: carry on and let mux.js decide
+      }
+    }
   };
 
   Session.prototype.feed = function () {
-    if (this.stopped || !this.synced || !this.transmuxer) return;
+    if (this.stopped || this.frozen || !this.synced || !this.transmuxer || !this.checked) return;
     if (this.pending.byteLength < PACKET * 50) return;
     if (this.videoPID < 0 && this.pending.byteLength > PACKET * 400) this.videoPID = busiestPID(this.pending);
     var cut = cutPoint(this.pending, this.videoPID);
@@ -368,8 +435,18 @@
   };
 
   Session.prototype.watch = function () {
-    if (this.stopped) return;
-    if (Date.now() - this.lastBytes > STALL_TIMEOUT) this.fail(this.playing ? 'STREAM_STALLED' : 'NO_DATA');
+    if (this.stopped || this.frozen) return;
+    if (Date.now() - this.lastBytes > STALL_TIMEOUT) { this.fail(this.playing ? 'STREAM_STALLED' : 'NO_DATA'); return; }
+    // Picture stuck although data keeps arriving → reconnect (~10 s).
+    if (this.begun && this.playing && !this.video.paused) {
+      if (Math.abs(this.video.currentTime - (this.lastTime || 0)) < 0.01) {
+        this.stuck = (this.stuck || 0) + 1;
+        if (this.stuck > 14) { this.fail('PICTURE_FROZEN'); return; }
+      } else {
+        this.stuck = 0;
+        this.lastTime = this.video.currentTime;
+      }
+    }
     // A gap in the buffer (lost fragment) would freeze playback: hop over it.
     var video = this.video;
     var sb = this.sourceBuffer;
@@ -381,6 +458,18 @@
         }
       }
     }
+  };
+
+  /** Live pause: keep the last picture, stop downloading (frees the provider connection and
+   *  memory); playing again starts a fresh session at the live point. */
+  Session.prototype.freeze = function () {
+    if (this.stopped || this.frozen) return;
+    this.frozen = true;
+    clearInterval(this.feedTimer);
+    if (this.source) this.source.stop();
+    this.queue = [];
+    this.pending = new Uint8Array(0);
+    try { this.video.pause(); } catch (e) {}
   };
 
   Session.prototype.fail = function (name) {
@@ -404,9 +493,39 @@
     setTimeout(function () { try { global.URL.revokeObjectURL(url); } catch (e) {} }, 1000);
   };
 
+  /** Deletes stream files left behind when the app was closed while the native source ran. */
+  function cleanupTemp() {
+    var fs = global.tizen && global.tizen.filesystem;
+    if (!fs) return;
+    function remove(names, prefix) {
+      names.forEach(function (name) {
+        if (String(name).indexOf('veylo-') !== 0) return;
+        try { fs.deleteFile(prefix + name); } catch (e) { /* in use or gone */ }
+      });
+    }
+    try {
+      if (fs.listDirectory) {
+        fs.listDirectory('wgt-private-tmp', function (names) { remove(names, 'wgt-private-tmp/'); }, function () {});
+        return;
+      }
+    } catch (e) { /* older API below */ }
+    try {
+      fs.resolve('wgt-private-tmp', function (dir) {
+        dir.listFiles(function (files) {
+          files.forEach(function (f) {
+            if (f.name.indexOf('veylo-') === 0) {
+              try { dir.deleteFile(f.fullPath, function () {}, function () {}); } catch (e) {}
+            }
+          });
+        }, function () {});
+      }, function () {}, 'rw');
+    } catch (e) { /* not available */ }
+  }
+
   global.VeyloEngine = {
     supported: supported,
     hasNative: hasNative,
+    cleanupTemp: cleanupTemp,
     /** mode: 'web' | 'native'. callbacks: onPlaying, onBuffering, onError(name). */
     start: function (url, mode, callbacks) {
       var anchor = document.getElementById('app');

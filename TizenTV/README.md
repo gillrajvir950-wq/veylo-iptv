@@ -1,8 +1,9 @@
 # Veylo for Samsung TV (Tizen)
 
 Web app for Samsung Smart TVs (Tizen 3.0+, tested target: 2021 Q60A / Tizen 6.0).
-Same idea as the iPhone app: Xtream Codes or M3U login, saved providers, categories,
-favorites, recently watched, search, channel numbers and NOW/NEXT guide.
+Same idea as the iPhone app: Xtream Codes or M3U login, several saved accounts, Live TV grouped by
+country and category, Movies and Series (Xtream) with resume and My List, favorites, recently watched,
+search, channel numbers and NOW/NEXT guide.
 Playback uses the **Veylo engine** (the app fetches the MPEG-TS stream like VLC does and plays it through the TV's web video player, using [mux.js](https://github.com/videojs/mux.js), Apache-2.0) with Samsung's **AVPlay** as the backup (several player identities, TS and HLS). Settings › Player switches between them.
 
 > Use only streams you are authorized to access. Saved providers (including the password or
@@ -19,6 +20,7 @@ Playback uses the **Veylo engine** (the app fetches the MPEG-TS stream like VLC 
 | 0–9 | jump to channel number | jump to channel number |
 | Yellow | add / remove favorite | add / remove favorite |
 | Green | accounts (switch / add / rename / remove) | — |
+| ▲ (top row) | top menu: Live TV · Movies · Series · Settings | — |
 | ⏯ | play | pause / resume |
 | Back | to categories · twice to exit | back to the list |
 

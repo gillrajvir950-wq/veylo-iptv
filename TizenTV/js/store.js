@@ -34,6 +34,8 @@
     try { global.localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* storage full or blocked */ }
   }
 
+  function scoped(key) { return key + '.' + Store.scope; }
+
   function uid() {
     return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
@@ -96,24 +98,67 @@
       return Store.providers().filter(function (p) { return p.id === id; })[0] || null;
     },
 
-    favorites: function () { return read(KEYS.favorites, []); },
+    /** Favorites, recents, My List and resume points belong to one account: the same stream id
+     *  is a different channel at another provider. `setScope` is called on every connect. */
+    scope: 'default',
+    setScope: function (id) {
+      Store.scope = id || 'default';
+      // One-time move of the pre-0.1.11 shared lists to the first account opened afterwards.
+      var legacyFav = read(KEYS.favorites, null), legacyRec = read(KEYS.recents, null);
+      if (legacyFav || legacyRec) {
+        if (legacyFav && !read(scoped(KEYS.favorites), null)) write(scoped(KEYS.favorites), legacyFav);
+        if (legacyRec && !read(scoped(KEYS.recents), null)) write(scoped(KEYS.recents), legacyRec);
+        try { global.localStorage.removeItem(KEYS.favorites); global.localStorage.removeItem(KEYS.recents); } catch (e) {}
+        delete cache[KEYS.favorites];
+        delete cache[KEYS.recents];
+      }
+    },
+
+    favorites: function () { return read(scoped(KEYS.favorites), []); },
     isFavorite: function (key) {
-      var list = cache[KEYS.favorites] === undefined ? Store.favorites() : cache[KEYS.favorites];
+      var k = scoped(KEYS.favorites);
+      var list = cache[k] === undefined ? Store.favorites() : cache[k];
       return !!list && list.indexOf(key) >= 0;
     },
     toggleFavorite: function (key) {
       var list = Store.favorites();
       var at = list.indexOf(key);
       if (at >= 0) list.splice(at, 1); else list.unshift(key);
-      write(KEYS.favorites, list);
+      write(scoped(KEYS.favorites), list);
       return at < 0;
     },
 
-    recents: function () { return read(KEYS.recents, []); },
+    recents: function () { return read(scoped(KEYS.recents), []); },
     addRecent: function (key) {
       var list = Store.recents().filter(function (k) { return k !== key; });
       list.unshift(key);
-      write(KEYS.recents, list.slice(0, 30));
+      write(scoped(KEYS.recents), list.slice(0, 30));
+    },
+
+    /** My List for movies ('movie') or series ('series'): ids, newest first. */
+    myList: function (kind) { return read(scoped('veylo.tv.mylist.' + kind), []); },
+    inMyList: function (kind, id) { return Store.myList(kind).indexOf(String(id)) >= 0; },
+    toggleMyList: function (kind, id) {
+      var list = Store.myList(kind);
+      var at = list.indexOf(String(id));
+      if (at >= 0) list.splice(at, 1); else list.unshift(String(id));
+      write(scoped('veylo.tv.mylist.' + kind), list);
+      return at < 0;
+    },
+
+    /** Resume points: {key: {pos, dur, t, title, poster, kind, id}} (seconds), newest 300 kept. */
+    progressAll: function () { return read(scoped('veylo.tv.vodProgress'), {}); },
+    progress: function (key) { return Store.progressAll()[key] || null; },
+    setProgress: function (key, entry) {
+      var all = Store.progressAll();
+      delete all[key];
+      if (entry) {
+        entry.t = Date.now();
+        all[key] = entry;
+      }
+      var keys = Object.keys(all);
+      while (keys.length > 300) delete all[keys.shift()];
+      write(scoped('veylo.tv.vodProgress'), all);
     },
 
     /** 'ts' (default, like the iPhone app) or 'm3u8' for Xtream live streams. */

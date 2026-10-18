@@ -334,6 +334,175 @@
     });
   };
 
+  // MARK: Movies & Series (Xtream)
+
+  function num(value) {
+    var n = parseFloat(value);
+    return isNaN(n) ? 0 : n;
+  }
+
+  /** Poster links from panels come as "//host/x.jpg", with escaped slashes or as bare TMDB paths. */
+  function image(url) {
+    var u = str(url).trim().replace(/\\\//g, '/');
+    if (!u) return '';
+    if (u.indexOf('//') === 0) return 'http:' + u;
+    if (/^\/[A-Za-z0-9]+\.(jpg|png|webp)$/i.test(u)) return 'https://image.tmdb.org/t/p/w342' + u;
+    return /^https?:\/\//i.test(u) ? u : '';
+  }
+
+  function yearOf(text) {
+    var m = /\b(19|20)\d{2}\b/.exec(str(text));
+    return m ? m[0] : '';
+  }
+
+  /** Titles like "EN - The Movie (2021)" → "The Movie" (year kept separately). */
+  function vodTitle(name) {
+    var t = title(str(name));
+    return t.replace(/\s*[\(\[]\s*(19|20)\d{2}\s*[\)\]]\s*$/, '').trim() || str(name);
+  }
+
+  function categoryMap(rows) {
+    var names = {}, order = [];
+    list(rows).forEach(function (c) {
+      if (!c) return;
+      var id = str(c.category_id);
+      names[id] = str(c.category_name) || 'Uncategorized';
+      order.push(id);
+    });
+    return { names: names, order: order };
+  }
+
+  function groupByCategory(items, cats) {
+    var buckets = {};
+    items.forEach(function (it) {
+      var id = cats.names[it.categoryID] !== undefined ? it.categoryID : '';
+      (buckets[id] = buckets[id] || []).push(it);
+    });
+    var out = [];
+    cats.order.forEach(function (id) {
+      if (buckets[id]) out.push({ id: id, name: cats.names[id], items: buckets[id] });
+    });
+    if (buckets['']) out.push({ id: '', name: 'Uncategorized', items: buckets[''] });
+    return out;
+  }
+
+  /** {items, categories} for 'movie' or 'series'. */
+  Xtream.prototype.loadLibrary = function (kind) {
+    var self = this;
+    var isMovie = kind === 'movie';
+    return Promise.all([
+      fetchJSON(self.endpoint(isMovie ? 'get_vod_streams' : 'get_series')),
+      fetchJSON(self.endpoint(isMovie ? 'get_vod_categories' : 'get_series_categories')).catch(function () { return []; })
+    ]).then(function (results) {
+      var cats = categoryMap(results[1]);
+      var items = [];
+      list(results[0]).forEach(function (v) {
+        if (!v) return;
+        var id = str(isMovie ? v.stream_id : v.series_id);
+        if (!id) return;
+        var name = str(v.name) || str(v.title);
+        items.push({
+          kind: kind,
+          id: id,
+          name: name,
+          title: vodTitle(name),
+          year: str(v.year) || yearOf(name) || yearOf(v.releaseDate || v.release_date),
+          rating: num(v.rating_5based) ? Math.round(num(v.rating_5based) * 20) / 10 : num(v.rating),
+          poster: image(isMovie ? v.stream_icon : (v.cover || v.stream_icon)),
+          plot: str(v.plot),
+          genre: str(v.genre),
+          added: num(v.added || v.last_modified),
+          ext: str(v.container_extension) || 'mp4',
+          categoryID: str(v.category_id)
+        });
+      });
+      return { items: items, categories: groupByCategory(items, cats) };
+    });
+  };
+
+  Xtream.prototype.vodURL = function (id, ext) {
+    return this.server + '/movie/' + encodeURIComponent(this.username) + '/' +
+      encodeURIComponent(this.password) + '/' + id + '.' + (ext || 'mp4');
+  };
+
+  Xtream.prototype.episodeURL = function (id, ext) {
+    return this.server + '/series/' + encodeURIComponent(this.username) + '/' +
+      encodeURIComponent(this.password) + '/' + id + '.' + (ext || 'mp4');
+  };
+
+  function durationSeconds(info) {
+    if (num(info.duration_secs)) return num(info.duration_secs);
+    var m = /^(\d+):(\d{2}):(\d{2})$/.exec(str(info.duration));
+    if (m) return num(m[1]) * 3600 + num(m[2]) * 60 + num(m[3]);
+    if (num(info.episode_run_time)) return num(info.episode_run_time) * 60;
+    return 0;
+  }
+
+  /** Plot, cast, genre, duration and backdrop for one movie. */
+  Xtream.prototype.movieInfo = function (id) {
+    return fetchJSON(this.endpoint('get_vod_info', '&vod_id=' + encodeURIComponent(id))).then(function (data) {
+      var info = (data && data.info) || {};
+      var movie = (data && data.movie_data) || {};
+      var backdrop = info.backdrop_path;
+      if (Array.isArray(backdrop)) backdrop = backdrop[0];
+      return {
+        plot: str(info.plot || info.description),
+        genre: str(info.genre),
+        cast: str(info.cast || info.actors),
+        director: str(info.director),
+        year: yearOf(info.releasedate || info.release_date),
+        rating: num(info.rating),
+        duration: durationSeconds(info),
+        backdrop: image(backdrop),
+        poster: image(info.movie_image || info.cover_big),
+        ext: str(movie.container_extension)
+      };
+    });
+  };
+
+  /** Seasons with episodes for one series. */
+  Xtream.prototype.seriesInfo = function (id) {
+    return fetchJSON(this.endpoint('get_series_info', '&series_id=' + encodeURIComponent(id))).then(function (data) {
+      var info = (data && data.info) || {};
+      var episodes = (data && data.episodes) || {};
+      var seasons = [];
+      var keys = Array.isArray(episodes) ? episodes.map(function (e, i) { return String(i); }) : Object.keys(episodes);
+      keys.forEach(function (key) {
+        var rows = list(episodes[key]);
+        if (!rows.length) return;
+        var number = num(key) || num(rows[0] && rows[0].season) || (seasons.length + 1);
+        seasons.push({
+          number: number,
+          episodes: rows.filter(Boolean).map(function (e, i) {
+            var ei = e.info || {};
+            return {
+              id: str(e.id),
+              number: num(e.episode_num) || (i + 1),
+              title: str(e.title) || ('Episode ' + (i + 1)),
+              ext: str(e.container_extension) || 'mp4',
+              plot: str(ei.plot),
+              duration: durationSeconds(ei),
+              image: image(ei.movie_image)
+            };
+          }).filter(function (e) { return e.id; }).sort(function (a, b) { return a.number - b.number; })
+        });
+      });
+      seasons.sort(function (a, b) { return a.number - b.number; });
+      var backdrop = info.backdrop_path;
+      if (Array.isArray(backdrop)) backdrop = backdrop[0];
+      return {
+        plot: str(info.plot),
+        genre: str(info.genre),
+        cast: str(info.cast),
+        year: yearOf(info.releaseDate || info.release_date),
+        rating: num(info.rating),
+        backdrop: image(backdrop),
+        poster: image(info.cover),
+        seasons: seasons
+      };
+    });
+  };
+
   // MARK: M3U
 
   function attribute(name, line) {
