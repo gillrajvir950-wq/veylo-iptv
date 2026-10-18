@@ -489,16 +489,6 @@ html.playing, body.playing, body.playing #app { background: transparent; }
 .lock-list { height: 820px; overflow: hidden; width: 1100px; }
 .lock-list h3 { font-size: 20px; letter-spacing: 1.5px; color: var(--faint); margin: 20px 0 12px 10px; }
 .lock-list .item.on .value { color: #ffd60a; }
-/* Live preview: the page is see-through where the picture is (Samsung's player draws behind it). */
-html.previewing, html.previewing body, html.previewing #app { background: transparent; }
-html.previewing .backdrop { display: none; }
-/* Nothing over the picture may be its own GPU layer, rounded or clipped: the TV draws video on a
-   plane behind the page and such layers come out opaque (audio but a black box). */
-html.previewing .preview { background: transparent; border-color: transparent; will-change: auto; transform: none; }
-html.previewing #preview .logo { background: transparent; border: 0; border-radius: 0; overflow: visible; box-shadow: none; }
-html.previewing #preview .logo > * { visibility: hidden; }
-html.previewing .browser, html.previewing .content, html.previewing .content-body, html.previewing .details { background: transparent; }
-.engine-video.preview-video { z-index: 3; }
 
 /* ---------- Guide inside Live TV ---------- */
 .key.blue { background: #0a84ff; }
@@ -513,7 +503,6 @@ html.previewing .browser, html.previewing .content, html.previewing .content-bod
 .nn-left { color: var(--faint); }
 .nn-bar { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.15); margin-top: 7px; width: 70%; overflow: hidden; }
 .nn-bar > div { height: 100%; background: var(--accent); }
-.preview-label { font-size: 17px; color: var(--faint); margin-top: 8px; height: 22px; }
 
 /* Rows and cards are laid out on their own (a change inside one never re-lays out the page). */
 .row, .cat, .chp-row, .ep, .grow, .poster, .hcard { contain: layout; }

@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.2.7';
+  var VERSION = '0.2.8';
 
   // ---------- Keys ----------
   var K = {
@@ -421,49 +421,7 @@
     lastBack: 0
   };
 
-  // ---------- Live preview (Settings › Live preview): the channel plays inside the preview box ----------
-  // It uses the same player as full screen (Samsung's or the Veylo engine, whichever works for the
-  // channel), so OK on that channel just enlarges the picture — no second connection, no restart.
-  var Preview = { timer: null, channel: null, active: false, handover: false };
-
-  function stopPreview(keepStream) {
-    clearTimeout(Preview.timer);
-    if (Preview.active && !keepStream) Player.stop();
-    Preview.active = false;
-    Preview.channel = null;
-    document.documentElement.classList.remove('previewing');
-  }
-
-  function schedulePreviewVideo(channel) {
-    stopPreview();
-    if (!channel || !Store.preview()) return;
-    Preview.timer = setTimeout(function () {
-      if (App.screen !== 'browser' || !Browser.chList || Browser.chList.current() !== channel || Browser.focus !== 'list') return;
-      var box = document.querySelector('#preview .logo');
-      if (!box) return;
-      var r = box.getBoundingClientRect();
-      Preview.channel = channel;
-      Preview.active = true;
-      document.documentElement.classList.add('previewing');
-      box.classList.add('preview-wait');
-      Player.onState = function (state) {
-        if (!Preview.active) return;
-        var node = document.querySelector('#preview .logo');
-        if (node) node.classList.toggle('preview-wait', state !== 'playing');
-        var label = document.getElementById('preview-label');
-        var a = Player.attempt && Player.attempt();
-        if (label) label.textContent = state === 'playing' && a ? 'Preview · ' + a.agent.label : state === 'error' ? '' : 'Preview loading…';
-        if (state === 'error') stopPreview();
-      };
-      Player.play(channel.url, channel.altURL, {
-        key: Store.scope + '|' + channel.key, uhd: channel.quality === '4K',
-        rect: { left: r.left, top: r.top, width: r.width, height: r.height }
-      });
-    }, 1000);
-  }
-
   function setScreen(name, html, handler) {
-    stopPreview(Preview.handover);
     if (global.VeyloGuide) global.VeyloGuide.unmount();
     if (Browser.pendingSection) { clearTimeout(Browser.pendingSection); Browser.pendingSection = null; }
     clearTimeout(Browser.previewTimer);
@@ -976,7 +934,6 @@
 
   /** Preview (big logo + EPG) only when the highlight rests on a channel. */
   function schedulePreview() {
-    stopPreview();
     clearTimeout(Browser.previewTimer);
     Browser.previewTimer = setTimeout(updatePreview, 160);
   }
@@ -1007,8 +964,7 @@
         (acc && acc.expires ? '<div class="cat-name">Subscription until ' + acc.expires.toLocaleDateString() + '</div>' : '');
       return;
     }
-    schedulePreviewVideo(channel);
-    box.innerHTML = logoHTML(channel) + '<div class="preview-label" id="preview-label"></div>' +
+    box.innerHTML = logoHTML(channel) +
       '<h2>' + esc(channel.title) + '</h2>' +
       '<div class="cat-name">' + esc(API.title(channel.category)) + (channel.quality ? ' · ' + channel.quality : '') + '</div>' +
       '<div class="epg" id="preview-epg"></div>';
@@ -1130,7 +1086,6 @@
     } else if (key === K.ENTER || key === K.PLAY || key === K.PLAY_PAUSE) {
       var channel = Browser.chList.current();
       if (channel) {
-        Preview.handover = Preview.active && Preview.channel === channel;
         Browser.positions[section.id] = Browser.chList.index;
         showPlayer(section.channels, Browser.chList.index, section.id === 'search' ? 'Search results' : section.label);
       }
@@ -1328,8 +1283,7 @@
         '<div class="group"><h3>PLAYBACK</h3>' +
           '<div class="item focusable" data-action="autostart">Start with the last channel<span class="value">' +
             (Store.autostart() ? 'On' : 'Off') + '</span></div>' +
-          '<div class="item focusable" data-action="preview">Live preview in the channel list<span class="value">' +
-            (Store.preview() ? 'On' : 'Off') + '</span></div>' +
+
           '<div class="item focusable" data-action="engine">Player<span class="value">' +
             (Player.engineEnabled() ? 'Veylo engine (like iPhone)' : 'Samsung player') + '</span></div>' +
           '<div class="item focusable" data-action="format">Live stream format<span class="value">' +
@@ -1391,10 +1345,7 @@
         unlock(showLockScreen);
       } else if (action === 'autoadult') {
         unlock(function () { Store.setAutoAdult(!Store.autoAdult()); applyLock(); showSettings(); });
-      } else if (action === 'preview') {
-        Store.setPreview(!Store.preview());
-        if (Store.preview()) toast('Preview uses one of your provider connections');
-        showSettings();
+
       } else if (action === 'autostart') {
         Store.setAutostart(!Store.autostart());
         showSettings();
@@ -1499,19 +1450,6 @@
       this.index = next;
       var channel = this.lineup[this.index];
       this.paused = false;
-      if (immediate && Preview.handover && Player.current) {
-        // The preview is already playing this channel: just make it full screen.
-        Preview.handover = false;
-        Player.setRect(null);
-        Store.addRecent(channel.key);
-        Store.setLastChannel(channel.key);
-        this.setState(Player.current.playing ? 'playing' : 'loading');
-        this.renderInfo();
-        this.showOverlay();
-        this.loadEPG();
-        return;
-      }
-      Preview.handover = false;
       Player.stop();   // frees the provider connection right away
       this.setState('loading');
       this.renderInfo();
