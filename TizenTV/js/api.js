@@ -300,8 +300,9 @@
    *  concurrent callers — for blocked providers every request is a native download. */
   var epgCache = {};
 
-  Xtream.prototype.shortEPG = function (streamID) {
-    var key = this.server + '|' + streamID;
+  Xtream.prototype.shortEPG = function (streamID, limit) {
+    limit = limit || 4;
+    var key = this.server + '|' + streamID + '|' + limit;
     var hit = epgCache[key];
     var now = Date.now();
     if (hit && hit.until > now) {
@@ -310,7 +311,7 @@
       });
     }
     var entry = { until: now + 10 * 60000 };
-    entry.promise = this.loadShortEPG(streamID).then(function (items) {
+    entry.promise = this.loadShortEPG(streamID, limit).then(function (items) {
       if (items.length && items[0].end > now) entry.until = Math.min(entry.until, items[0].end);
       return items;
     }, function (error) {
@@ -322,13 +323,13 @@
   };
 
   /** Now/next programmes for one channel (base64 titles). */
-  Xtream.prototype.loadShortEPG = function (streamID) {
-    return fetchJSON(this.endpoint('get_short_epg', '&stream_id=' + streamID + '&limit=4')).then(function (data) {
+  Xtream.prototype.loadShortEPG = function (streamID, limit) {
+    return fetchJSON(this.endpoint('get_short_epg', '&stream_id=' + streamID + '&limit=' + (limit || 4))).then(function (data) {
       var items = list(data && (data.epg_listings || data.listings));
       return items.map(function (p) {
         var start = Number(p.start_timestamp) ? Number(p.start_timestamp) * 1000 : Date.parse(str(p.start).replace(' ', 'T'));
         var end = Number(p.stop_timestamp) ? Number(p.stop_timestamp) * 1000 : Date.parse(str(p.end || p.stop).replace(' ', 'T'));
-        return { title: decodeBase64(str(p.title)), start: start, end: end };
+        return { title: decodeBase64(str(p.title)), desc: decodeBase64(str(p.description)), start: start, end: end };
       }).filter(function (p) { return p.title && p.end > Date.now(); })
         .sort(function (a, b) { return a.start - b.start; });
     });

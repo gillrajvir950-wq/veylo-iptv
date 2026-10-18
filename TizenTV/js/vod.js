@@ -154,6 +154,7 @@
   }
 
   function show(kind) {
+    Lib.returnTo = null;
     if (Lib.kind !== kind) { Lib.kind = kind; Lib.sectionIndex = 1; Lib.positions = {}; Lib.query = ''; Lib.col = 0; }
     var tab = kind === 'movie' ? 'movies' : 'series';
     var html =
@@ -381,6 +382,7 @@
   }
 
   function backToLibrary() {
+    if (Lib.returnTo) { var back = Lib.returnTo; back(); return; }
     Lib.focus = 'grid';
     show(Lib.kind);
   }
@@ -963,6 +965,13 @@
 
   global.VeyloLibrary = {
     show: show,
+    load: function (kind) { return client() ? library(kind) : Promise.reject(new Error('no Xtream')); },
+    /** Opens a movie/series detail from elsewhere (Home); BACK returns there. */
+    openItem: function (item, back) {
+      Lib.kind = item.kind;
+      Lib.returnTo = back || null;
+      if (item.kind === 'movie') showMovie(item); else showSeries(item);
+    },
     clearCache: function () {
       cacheClear();
       if (UI.App.session) UI.App.session.library = {};

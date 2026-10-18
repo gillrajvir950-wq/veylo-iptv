@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.2.1';
+  var VERSION = '0.2.2';
 
   // ---------- Keys ----------
   var K = {
@@ -75,7 +75,9 @@
 
   // ---------- Top menu: Live TV · Movies · Series · Settings ----------
   var TABS = [
+    { id: 'home', label: 'Home' },
     { id: 'live', label: 'Live TV' },
+    { id: 'guide', label: 'TV Guide' },
     { id: 'movies', label: 'Movies' },
     { id: 'series', label: 'Series' },
     { id: 'settings', label: 'Settings' }
@@ -135,6 +137,8 @@
     if (!App.session) { showLogin(); return; }
     if (id === 'live') { Browser.focus = 'cats'; showBrowser(); }
     else if (id === 'settings') showSettings();
+    else if (id === 'home' && global.VeyloHome) global.VeyloHome.show();
+    else if (id === 'guide' && global.VeyloGuide) global.VeyloGuide.show();
     else if (global.VeyloLibrary) global.VeyloLibrary.show(id === 'movies' ? 'movie' : 'series');
   }
 
@@ -549,7 +553,7 @@
       result.channels.forEach(function (c) { App.byKey[c.key] = c; });
       Browser.reset();
       PlayerScreen.previous = null;
-      showBrowser();
+      if (global.VeyloHome) global.VeyloHome.show(); else showBrowser();
       if (autostart && Store.autostart()) startLastChannel();
     }).catch(function (error) {
       var offline = error && (error.status === 0 || error.status === -1);
@@ -1333,9 +1337,11 @@
     }
   };
 
-  function showPlayer(lineup, index, title) {
+  /** `back` (optional): where BACK returns to (Home, Guide); default the channel browser. */
+  function showPlayer(lineup, index, title, back) {
     PlayerScreen.lineup = lineup.slice();
     PlayerScreen.title = title || '';
+    PlayerScreen.back = back || null;
     var html =
       '<div class="player">' +
         '<div id="player-overlay">' +
@@ -1382,6 +1388,7 @@
       var at = section.channels.indexOf(playing);
       if (at >= 0) Browser.positions[section.id] = at;
     }
+    if (PlayerScreen.back) { var back = PlayerScreen.back; PlayerScreen.back = null; back(); return; }
     Browser.focus = 'list';
     showBrowser();
   }
@@ -1449,6 +1456,10 @@
     VList: VList, FormFocus: FormFocus, setScreen: setScreen,
     navHTML: navHTML, navKey: navKey, navFocus: navFocus, openTab: openTab, askExit: askExit,
     showBrowser: function () { Browser.focus = 'cats'; showBrowser(); },
+    showPlayer: showPlayer,
+    logoHTML: logoHTML,
+    epgHTML: epgHTML,
+    toggleFavorite: toggleFavorite,
     showAccounts: function () { showAccounts(); }
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);

@@ -418,3 +418,58 @@ html.playing, body.playing, body.playing #app { background: transparent; }
 .tracks .item { font-size: 26px; padding: 14px 20px; border-radius: 16px; color: var(--muted); }
 .tracks .item.on { color: #fff; }
 .tracks .item.focused { background: #fff; color: #000; transform: none; box-shadow: none; }
+
+/* ---------- Home ---------- */
+.home { position: absolute; top: 100px; left: 0; right: 0; bottom: 0; overflow: hidden; }
+.home-inner { padding: 30px 0 0 60px; will-change: transform; transition: transform 0.15s ease-out; }
+.shelf { margin-bottom: 34px; }
+.shelf h2 { font-size: 30px; font-weight: 800; margin: 0 0 16px 4px; }
+.shelf-track { overflow: hidden; height: 400px; padding: 8px 0 0 6px; }
+.shelf.channels .shelf-track { height: 196px; }
+.shelf-inner { display: flex; will-change: transform; transition: transform 0.12s ease-out; }
+.hcard { flex: none; position: relative; }
+.hcard + .hcard { margin-left: 26px; }
+.hcard.ch { width: 260px; }
+.hcard.ch .logo { width: 260px; height: 146px; border-radius: 20px; }
+.hcard.ch .logo img { max-width: 210px; max-height: 110px; }
+.hcard.ch .logo .initials { font-size: 22px; }
+.hcard.poster { width: 220px; }
+.hcard.poster .pimg { width: 220px; height: 330px; }
+.hcard.poster .pbar { top: 312px; }
+.htitle { font-size: 21px; font-weight: 700; margin-top: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.hcard.focused .logo, .hcard.focused .pimg { box-shadow: 0 0 0 5px #fff, 0 12px 40px rgba(0,0,0,0.7); border-color: #fff; }
+.hcard.focused .htitle { color: #fff; }
+
+/* ---------- TV Guide ---------- */
+.guide { position: absolute; top: 100px; left: 0; right: 0; bottom: 0; display: flex; }
+.gside { width: 380px; flex: none; padding: 24px 20px 30px 36px; background: rgba(10, 9, 14, 0.82); border-right: 1px solid var(--line); }
+#gcats { height: 888px; }
+.gmain { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 20px 0 0 30px; position: relative; }
+.gdetail { height: 170px; flex: none; padding: 6px 40px 0 0; overflow: hidden; }
+.gd-ch { font-size: 20px; color: var(--faint); font-weight: 700; letter-spacing: 1px; }
+.gd-title { font-size: 36px; font-weight: 800; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gd-time { font-size: 22px; color: var(--muted); margin-top: 6px; }
+.gd-live { color: var(--live); font-weight: 900; }
+.gd-desc { font-size: 20px; color: var(--faint); margin-top: 8px; max-height: 52px; overflow: hidden; }
+.gtimes-row { display: flex; height: 40px; flex: none; }
+.gtimes-pad { width: 300px; flex: none; }
+.gtimes { position: relative; width: 1180px; }
+.gtick { position: absolute; top: 6px; font-size: 19px; color: var(--faint); font-weight: 700; padding-left: 6px; border-left: 1px solid var(--line); height: 34px; }
+.ggrid { position: relative; height: 680px; flex: none; }
+#grows { height: 672px; }
+.grow { height: 88px; margin-bottom: 8px; display: flex; }
+.gch { width: 290px; flex: none; display: flex; align-items: center; padding: 0 12px; border-radius: 16px; background: rgba(255,255,255,0.05); margin-right: 10px; }
+.gch > * + * { margin-left: 12px; }
+.gnum { width: 40px; font-size: 18px; color: var(--faint); text-align: right; }
+.gch .logo { width: 80px; height: 46px; border-radius: 10px; }
+.gch .logo img { max-width: 66px; max-height: 36px; }
+.gch .logo .initials { font-size: 11px; }
+.gname { font-size: 20px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.grow.focused .gch { background: rgba(255,255,255,0.16); }
+.gline { position: relative; width: 1180px; height: 88px; }
+.gprog { position: absolute; top: 0; height: 88px; padding: 0 16px; border-radius: 14px; background: rgba(255,255,255,0.07); font-size: 21px; line-height: 88px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.gprog.now { background: rgba(158, 99, 255, 0.22); color: #fff; }
+.gprog.loading, .gprog.empty { color: var(--faint); background: rgba(255,255,255,0.03); }
+.gprog.focused { background: #fff; color: #000; }
+.gnowline { position: absolute; top: 0; bottom: 0; width: 3px; background: var(--live); opacity: 0.8; pointer-events: none; }
+.gnow { position: absolute; top: 0; width: 3px; height: 40px; background: var(--live); }
