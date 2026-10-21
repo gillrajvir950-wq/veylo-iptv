@@ -1,0 +1,77 @@
+name: Veylo Android
+
+on:
+  push:
+    branches: [main]
+    paths: ['Android/**', '.github/workflows/android-build.yml']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      # The same signing key for every build, so a new APK installs over the old one (keeps the
+      # saved accounts). It is the build machine's own debug key, kept in the Actions cache —
+      # never committed to this public repository.
+      - name: Restore signing key
+        id: key
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: veylo-android-signing-key-v1
+
+      - name: Create signing key (first build only)
+        if: steps.key.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.android
+          keytool -genkeypair -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey \
+            -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Veylo,O=Veylo,C=US"
+
+      - name: Save signing key
+        if: steps.key.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: veylo-android-signing-key-v1
+
+      - name: Read version
+        id: ver
+        run: echo "version=$(grep -oP 'versionName = "\K[^"]+' Android/app/build.gradle.kts)" >> "$GITHUB_OUTPUT"
+
+      - name: Build APK
+        working-directory: Android
+        run: |
+          set -o pipefail
+          gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+
+      - name: Report build errors
+        if: failure()
+        working-directory: Android
+        run: |
+          grep -E "^e: |error: |What went wrong|Could not (find|resolve)" build.log | head -12 | while IFS= read -r line; do
+            echo "::error title=Android build::${line}"
+          done
+          grep -A6 "What went wrong" build.log | head -30 || true
+
+      - name: Package
+        run: |
+          mkdir -p out
+          cp Android/app/build/outputs/apk/release/app-release.apk "out/Veylo-${{ steps.ver.outputs.version }}.apk"
+          ls -la out
+          echo "::notice title=APK::Veylo-${{ steps.ver.outputs.version }}.apk ($(du -h out/*.apk | cut -f1))"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Veylo-Android-${{ steps.ver.outputs.version }}-APK
+          path: out/*.apk

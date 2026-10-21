@@ -3,7 +3,7 @@ name: Veylo 0.0.43 iOS Build
 on:
   push:
     branches: [main]
-    paths-ignore: ['TizenTV/**', '.github/workflows/tizen-build.yml']
+    paths-ignore: ['TizenTV/**', '.github/workflows/tizen-build.yml', 'Android/**', '.github/workflows/android-build.yml', 'CLAUDE.md']
   workflow_dispatch:
 
 jobs:

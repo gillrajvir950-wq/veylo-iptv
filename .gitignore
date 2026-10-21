@@ -9,3 +9,10 @@ build/
 *.mobileprovision
 *.pem
 *.key
+Android/.gradle/
+Android/build/
+Android/app/build/
+Android/local.properties
+Android/build.log
+*.jks
+*.keystore
