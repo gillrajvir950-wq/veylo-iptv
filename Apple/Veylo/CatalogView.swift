@@ -18,9 +18,9 @@ struct CatalogView: View {
 
     // 0.0.15/0.0.16 favorites were list positions; they are migrated once to stable keys.
     @AppStorage("veylo.favoriteChannelIDs") private var legacyFavoriteIDs = ""
-    @AppStorage("veylo.favoriteKeys") private var favoriteKeysRaw = ""
+    @AppStorage(AccountScope.key("veylo.favoriteKeys")) private var favoriteKeysRaw = ""
     @AppStorage("veylo.favoritesMigrated") private var favoritesMigrated = false
-    @AppStorage("veylo.recentKeys") private var recentKeysRaw = ""
+    @AppStorage(AccountScope.key("veylo.recentKeys")) private var recentKeysRaw = ""
     @AppStorage("veylo.countryFilter") private var countryFilter = ""
 
     @State private var favoriteKeys: [String] = []
@@ -46,6 +46,10 @@ struct CatalogView: View {
     private struct NowPlaying: Identifiable {
         let id = UUID()
         let channel: PlaylistChannel
+        /// The list the channel was opened from (Favorites, Recently Watched, search results);
+        /// nil = the channel's category. Previous / next and the player's list follow it.
+        let lineup: [PlaylistChannel]?
+        let lineupTitle: String?
     }
 
     // MARK: Derived data
@@ -120,7 +124,8 @@ struct CatalogView: View {
         .veyloFullScreenCover(item: $nowPlaying) { item in
             PlaybackView(
                 channel: item.channel,
-                lineup: lineup(for: item.channel),
+                lineup: item.lineup ?? lineup(for: item.channel),
+                lineupTitle: item.lineupTitle,
                 subtitle: { subtitle(for: $0, showsCategory: true) ?? "" },
                 isFavorite: { favoriteKeys.contains($0.key) },
                 onToggleFavorite: { toggleFavorite($0) },
@@ -336,7 +341,8 @@ struct CatalogView: View {
                     searchText = ""
                 }
             } else {
-                channelGrid(searchResults, heading: "\(searchResults.count.formatted()) results", showsCategory: true)
+                channelGrid(searchResults, heading: "\(searchResults.count.formatted()) results", showsCategory: true,
+                            lineup: searchResults, lineupTitle: "Search results")
             }
         } else {
             switch selection {
@@ -351,7 +357,7 @@ struct CatalogView: View {
                         select(.home)
                     }
                 } else {
-                    channelGrid(favs, heading: nil, showsCategory: true)
+                    channelGrid(favs, heading: nil, showsCategory: true, lineup: favs, lineupTitle: "Favorites")
                 }
             case .recent:
                 let recents = recentChannels
@@ -361,7 +367,7 @@ struct CatalogView: View {
                         select(.home)
                     }
                 } else {
-                    channelGrid(recents, heading: nil, showsCategory: true)
+                    channelGrid(recents, heading: nil, showsCategory: true, lineup: recents, lineupTitle: "Recently Watched")
                 }
             case .genre(let genre):
                 genreContent(genre)
@@ -378,16 +384,17 @@ struct CatalogView: View {
                 ? slice.preview(of: slice.genres.contains(.sports) ? .sports : (slice.genres.first ?? .other), limit: Self.heroLimit)
                 : Array(recents.prefix(Self.heroLimit))
             if !featured.isEmpty {
-                heroCarousel(featured, label: recents.isEmpty ? "LIVE NOW" : "CONTINUE WATCHING")
+                heroCarousel(featured, label: recents.isEmpty ? "LIVE NOW" : "CONTINUE WATCHING",
+                             lineup: recents.isEmpty ? nil : recents)
             }
             if recents.count > 1 {
                 shelf("Recently Watched", channels: Array(recents.prefix(Self.shelfLimit)),
-                      target: .recent, showsCategory: true)
+                      target: .recent, showsCategory: true, lineup: recents)
             }
             let favs = favoriteChannels
             if !favs.isEmpty {
                 shelf("Favorites", channels: Array(favs.prefix(Self.shelfLimit)),
-                      target: .favorites, showsCategory: true)
+                      target: .favorites, showsCategory: true, lineup: favs)
             }
             ForEach(slice.genres) { genre in
                 shelf(genre.title, channels: slice.preview(of: genre, limit: Self.shelfLimit),
@@ -399,16 +406,16 @@ struct CatalogView: View {
 
     // MARK: Featured carousel
 
-    private func heroCarousel(_ channels: [PlaylistChannel], label: String) -> some View {
+    private func heroCarousel(_ channels: [PlaylistChannel], label: String, lineup: [PlaylistChannel]?) -> some View {
         VeyloPager(items: channels) { channel in
-            heroCard(channel, label: label)
+            heroCard(channel, label: label, lineup: lineup)
                 .padding(.horizontal, 20)
         }
         .frame(height: 252)
     }
 
-    private func heroCard(_ channel: PlaylistChannel, label: String) -> some View {
-        Button { play(channel) } label: {
+    private func heroCard(_ channel: PlaylistChannel, label: String, lineup: [PlaylistChannel]?) -> some View {
+        Button { play(channel, in: lineup, title: lineup == nil ? nil : "Recently Watched") } label: {
             ZStack(alignment: .bottomLeading) {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(VeyloTheme.cardGradient)
@@ -454,7 +461,7 @@ struct CatalogView: View {
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(VeyloTheme.stroke))
         }
         .buttonStyle(VeyloPressStyle(scale: 0.98))
-        .contextMenu { channelMenu(channel) }
+        .contextMenu { channelMenu(channel, lineup: lineup, title: lineup == nil ? nil : "Recently Watched") }
     }
 
     // MARK: Shelves and grids
@@ -479,7 +486,8 @@ struct CatalogView: View {
         }
     }
 
-    private func shelf(_ title: String, channels: [PlaylistChannel], target: CatalogSelection, showsCategory: Bool) -> some View {
+    private func shelf(_ title: String, channels: [PlaylistChannel], target: CatalogSelection, showsCategory: Bool,
+                       lineup: [PlaylistChannel]? = nil) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Button { select(target) } label: {
                 HStack(spacing: 5) {
@@ -500,7 +508,7 @@ struct CatalogView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 14) {
                     ForEach(channels) { channel in
-                        tile(channel, showsCategory: showsCategory)
+                        tile(channel, showsCategory: showsCategory, lineup: lineup, lineupTitle: lineup == nil ? nil : title)
                             .frame(width: 168)
                     }
                 }
@@ -510,7 +518,8 @@ struct CatalogView: View {
         }
     }
 
-    private func channelGrid(_ channels: [PlaylistChannel], heading: String?, showsCategory: Bool) -> some View {
+    private func channelGrid(_ channels: [PlaylistChannel], heading: String?, showsCategory: Bool,
+                             lineup: [PlaylistChannel]? = nil, lineupTitle: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             if let heading {
                 Text(heading)
@@ -519,7 +528,7 @@ struct CatalogView: View {
             }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 155, maximum: 240), spacing: 14)], alignment: .leading, spacing: 22) {
                 ForEach(channels) { channel in
-                    tile(channel, showsCategory: showsCategory)
+                    tile(channel, showsCategory: showsCategory, lineup: lineup, lineupTitle: lineupTitle)
                 }
             }
         }
@@ -527,8 +536,9 @@ struct CatalogView: View {
         .padding(.top, 16)
     }
 
-    private func tile(_ channel: PlaylistChannel, showsCategory: Bool) -> some View {
-        Button { play(channel) } label: {
+    private func tile(_ channel: PlaylistChannel, showsCategory: Bool,
+                      lineup: [PlaylistChannel]? = nil, lineupTitle: String? = nil) -> some View {
+        Button { play(channel, in: lineup, title: lineupTitle) } label: {
             ChannelTile(channel: channel)
                 .overlay(alignment: .topTrailing) {
                     if favoriteKeys.contains(channel.key) {
@@ -542,12 +552,12 @@ struct CatalogView: View {
                 }
         }
         .buttonStyle(VeyloPressStyle(scale: 0.95))
-        .contextMenu { channelMenu(channel) }
+        .contextMenu { channelMenu(channel, lineup: lineup, title: lineupTitle) }
     }
 
-    @ViewBuilder private func channelMenu(_ channel: PlaylistChannel) -> some View {
+    @ViewBuilder private func channelMenu(_ channel: PlaylistChannel, lineup: [PlaylistChannel]? = nil, title: String? = nil) -> some View {
         let isFavorite = favoriteKeys.contains(channel.key)
-        Button { play(channel) } label: {
+        Button { play(channel, in: lineup, title: title) } label: {
             Label("Play", systemImage: "play.fill")
         }
         Button { toggleFavorite(channel) } label: {
@@ -607,10 +617,11 @@ struct CatalogView: View {
         }
     }
 
-    private func play(_ channel: PlaylistChannel) {
+    private func play(_ channel: PlaylistChannel, in list: [PlaylistChannel]? = nil, title: String? = nil) {
         searchFocused = false
+        let lineup = list.flatMap { $0.contains(where: { $0.id == channel.id }) ? $0 : nil }
         recordRecent(channel)
-        nowPlaying = NowPlaying(channel: channel)
+        nowPlaying = NowPlaying(channel: channel, lineup: lineup, lineupTitle: lineup == nil ? nil : title)
     }
 
     /// Channels the player can switch between: the playing channel's category.

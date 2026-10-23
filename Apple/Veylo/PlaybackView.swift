@@ -32,6 +32,8 @@ enum VideoAspect: String, CaseIterable {
 /// or changing aspect never restarts the stream. Playback start/format logic is unchanged.
 struct PlaybackView: View {
     let lineup: [PlaylistChannel]
+    /// Name of the list the player switches through (nil = the channel's category).
+    let lineupName: String?
     let subtitle: (PlaylistChannel) -> String
     let isFavorite: (PlaylistChannel) -> Bool
     let onToggleFavorite: (PlaylistChannel) -> Void
@@ -58,6 +60,10 @@ struct PlaybackView: View {
     @State private var toast: String?
     @State private var programmes: [EPGProgram] = []
     @State private var vlcSuspended = false
+    /// Auto-reconnect when a channel that was playing drops (provider hiccup).
+    @State private var liveSince: Date?
+    @State private var dropRetries = 0
+    @State private var reconnectToken: UUID?
     @ObservedObject private var pip = PiPManager.shared
     @ObservedObject private var airplay = AirPlayManager.shared
     /// Mac: whether the app window is in macOS full screen.
@@ -67,11 +73,13 @@ struct PlaybackView: View {
 
     init(channel: PlaylistChannel,
          lineup: [PlaylistChannel],
+         lineupTitle: String? = nil,
          subtitle: @escaping (PlaylistChannel) -> String = { _ in "" },
          isFavorite: @escaping (PlaylistChannel) -> Bool = { _ in false },
          onToggleFavorite: @escaping (PlaylistChannel) -> Void = { _ in },
          onChannelChange: @escaping (PlaylistChannel) -> Void = { _ in }) {
         self.lineup = lineup.isEmpty ? [channel] : lineup
+        self.lineupName = lineupTitle
         self.subtitle = subtitle
         self.isFavorite = isFavorite
         self.onToggleFavorite = onToggleFavorite
@@ -85,7 +93,7 @@ struct PlaybackView: View {
     private var isFailed: Bool { status.hasPrefix("Playback failed") || status == "Stream ended" }
     private var canSwitch: Bool { lineup.count > 1 }
     private var showsFavorite: Bool { favoriteOverrides[channel.key] ?? isFavorite(channel) }
-    private var lineupTitle: String { VeyloText.pretty(channel.category) }
+    private var lineupTitle: String { lineupName ?? VeyloText.pretty(channel.category) }
 
     private struct AutoHideKey: Hashable {
         let visible: Bool
@@ -182,7 +190,9 @@ struct PlaybackView: View {
         }
         .onDisappear { airplay.stop(notify: false) }
         .onChange(of: isFailed) { _, failed in
-            if failed { Task { await session.refreshAccount() } }
+            guard failed else { return }
+            Task { await session.refreshAccount() }
+            scheduleReconnect()
         }
     }
 
@@ -329,6 +339,7 @@ struct PlaybackView: View {
             onStateChange: { newState in
                 if newState == "Live" {
                     lastLive = Date()
+                    if liveSince == nil { liveSince = Date() }
                 } else if newState == "Loading channel…", Date().timeIntervalSince(lastLive) < 2.5 {
                     return // VLC buffering ticks while video is already playing
                 }
@@ -339,7 +350,15 @@ struct PlaybackView: View {
     }
 
     @ViewBuilder private var videoOverlay: some View {
-        if isFailed {
+        if isFailed && reconnectToken != nil {
+            VStack(spacing: 12) {
+                ProgressView().controlSize(.large).tint(.white)
+                Text("Connection lost — reconnecting…")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .allowsHitTesting(false)
+        } else if isFailed {
             VStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 26))
@@ -863,6 +882,7 @@ struct PlaybackView: View {
 
     private func switchTo(_ next: PlaylistChannel) {
         guard next.id != channel.id else { return }
+        dropRetries = 0
         channel = next
         play(next.url)
         onChannelChange(next)
@@ -872,7 +892,27 @@ struct PlaybackView: View {
 
     private func reload() { play(currentURL ?? url) }
 
+    /// A channel that was playing and then stopped (VLC error / end of stream) is reopened
+    /// automatically after 2, 4 and 6 s; a channel that never started shows the error at once.
+    private func scheduleReconnect() {
+        // Only for a stream that was playing (or is already being reconnected).
+        guard liveSince != nil || dropRetries > 0, !paused, !vlcSuspended else { return }
+        if let since = liveSince, Date().timeIntervalSince(since) > 60 { dropRetries = 0 }   // ran fine for a while
+        guard dropRetries < 3 else { return }
+        dropRetries += 1
+        let token = UUID()
+        reconnectToken = token
+        let delay = Double(dropRetries * 2)
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(delay))
+            guard reconnectToken == token else { return }
+            reload()
+        }
+    }
+
     private func play(_ nextURL: URL) {
+        reconnectToken = nil
+        liveSince = nil
         currentURL = nextURL
         paused = false
         status = "Loading channel…"

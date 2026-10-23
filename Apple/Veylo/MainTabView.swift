@@ -247,8 +247,8 @@ struct SettingsView: View {
     @ObservedObject private var guide = XMLTVGuide.shared
     @ObservedObject private var session = ProviderSession.shared
     @State private var showProviders = false
-    @AppStorage("veylo.recentKeys") private var recentLiveRaw = ""
-    @AppStorage("veylo.favoriteKeys") private var favoriteLiveRaw = ""
+    @AppStorage(AccountScope.key("veylo.recentKeys")) private var recentLiveRaw = ""
+    @AppStorage(AccountScope.key("veylo.favoriteKeys")) private var favoriteLiveRaw = ""
     @AppStorage(LibraryKeys.movieList) private var movieListRaw = ""
     @AppStorage(LibraryKeys.seriesList) private var seriesListRaw = ""
     @AppStorage(LibraryKeys.recentSeries) private var recentSeriesRaw = ""
@@ -327,7 +327,7 @@ struct SettingsView: View {
 
                 if guide.status != .none { guideGroup }
 
-                group("Library & Storage", footer: "Favorites, lists and watch progress are stored only on this iPhone.") {
+                group("Library & Storage", footer: "Favorites, lists and watch progress are stored only on this iPhone, separately for each provider.") {
                     actionRow(icon: "clock.arrow.circlepath", color: .orange, title: "Clear Recently Watched", action: .recents)
                     rowDivider
                     actionRow(icon: "play.circle.fill", color: .blue, title: "Clear Continue Watching", action: .progress)

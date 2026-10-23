@@ -146,7 +146,7 @@ struct AddProviderView: View {
     @State private var epgURL = ""
     @State private var errorText: String?
 
-    private var trimmedServer: String { server.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var trimmedServer: String { RootView.normalizedServer(server) }
     private var trimmedPlaylist: String { playlistURL.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     private var canSave: Bool {
@@ -240,13 +240,13 @@ struct AddProviderView: View {
         let trimmedEPG = epgURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let host = URL(string: kind == .xtream ? trimmedServer : trimmedPlaylist)?.host ?? "Provider"
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let existing = store.matching(kind: kind, server: trimmedServer, username: username, playlistURL: trimmedPlaylist)
+        let existing = store.matching(kind: kind, server: trimmedServer, username: username.trimmingCharacters(in: .whitespacesAndNewlines), playlistURL: trimmedPlaylist)
         let profile = ProviderProfile(
             id: existing?.id ?? UUID(),
             name: trimmedName.isEmpty ? (existing?.name ?? host) : trimmedName,
             kind: kind,
             server: kind == .xtream ? trimmedServer : "",
-            username: kind == .xtream ? username : "",
+            username: kind == .xtream ? username.trimmingCharacters(in: .whitespacesAndNewlines) : "",
             host: host,
             lastUsed: Date()
         )

@@ -230,9 +230,10 @@ enum KeyList {
 }
 
 enum LibraryKeys {
-    static let movieList = "veylo.movieList"
-    static let seriesList = "veylo.seriesMyList"
-    static let recentSeries = "veylo.recentSeries"
+    // Per account (AccountScope).
+    static var movieList: String { AccountScope.key("veylo.movieList") }
+    static var seriesList: String { AccountScope.key("veylo.seriesMyList") }
+    static var recentSeries: String { AccountScope.key("veylo.recentSeries") }
     static let movieCountry = "veylo.movieCountry"
     static let seriesCountry = "veylo.seriesCountry"
 }
@@ -250,7 +251,7 @@ struct VODProgressEntry: Codable {
 
 /// Where the user stopped in each movie or episode ("v:<id>" / "e:<id>"), stored on device only.
 enum VODProgressStore {
-    static let defaultsKey = "veylo.vodProgress"
+    static var defaultsKey: String { AccountScope.key("veylo.vodProgress") }
     private static let limit = 300
 
     static func decode(_ data: Data) -> [String: VODProgressEntry] {

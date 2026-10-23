@@ -25,7 +25,7 @@ struct RootView: View {
     /// New value per successful connection, so the signed-in screens start fresh after a switch.
     @State private var sessionID = UUID()
 
-    private let version = "0.0.43"
+    private let version = "0.0.44"
     private var store: ProviderStore { ProviderStore.shared }
 
     var body: some View {
@@ -124,6 +124,15 @@ struct RootView: View {
         let host = URL(string: server.trimmingCharacters(in: .whitespacesAndNewlines))?.host
         return AccountSummary(type: "Xtream Codes", host: providerName ?? host ?? "Provider",
                               username: username.isEmpty ? nil : username, channelCount: channels.count)
+    }
+
+    /// Adds http:// when the address was typed without a scheme.
+    static func normalizedServer(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.lowercased().hasPrefix("http://"), !trimmed.lowercased().hasPrefix("https://") else {
+            return trimmed
+        }
+        return "http://" + trimmed
     }
 
     /// Short one-way hash so M3U URLs (which may embed credentials) are never stored.
@@ -244,6 +253,15 @@ struct RootView: View {
         defer {
             loading = false
             if autoLogin { autoLoginInProgress = false }
+        }
+        // "host:8080" or "provider.tv" typed without http:// is accepted; stray spaces in the
+        // username (keyboard suggestions) are dropped. Passwords are used exactly as typed.
+        if mode == 0 {
+            server = Self.normalizedServer(server)
+            username = username.trimmingCharacters(in: .whitespacesAndNewlines)
+            AccountScope.use(identity: AccountScope.identity(xtreamServer: server, username: username))
+        } else {
+            AccountScope.use(identity: AccountScope.identity(playlist: playlistURL))
         }
         do {
             var guideURL = URL(string: epgURL.trimmingCharacters(in: .whitespacesAndNewlines))
