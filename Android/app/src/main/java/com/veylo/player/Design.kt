@@ -128,21 +128,20 @@ fun ChannelArt(channel: Channel, focused: Boolean, favorite: Boolean, modifier: 
 
 /** Channel tile: card + name + what's on now. */
 @Composable
-fun ChannelTile(app: AppState, channel: Channel, favorite: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val programmes = rememberProgrammes(app, channel)
+fun ChannelTile(app: AppState, channel: Channel, favorite: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, showNow: Boolean = true) {
+    val programmes = if (showNow) rememberProgrammes(app, channel) else null
     val now = Epg.now(programmes)
     FocusCard(onClick = onClick, onLongClick = { app.toggleFavorite(channel) }, modifier = modifier) { focused ->
         ChannelArt(channel, focused, favorite)
         Spacer(Modifier.height(8.dp))
-        Text(channel.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(channel.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        // Fixed height below the name, so every tile in a row lines up (with or without a programme).
         Text(
             now?.title ?: Names.title(channel.category), color = if (now != null) VColor.Text.copy(alpha = 0.7f) else VColor.Faint,
             fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
         )
-        if (now != null) {
-            Spacer(Modifier.height(5.dp))
-            ProgressLine(now)
-        }
+        Spacer(Modifier.height(5.dp))
+        if (now != null) ProgressLine(now) else Spacer(Modifier.height(3.dp))
     }
 }
 

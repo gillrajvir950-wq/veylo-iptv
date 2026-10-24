@@ -11,8 +11,8 @@ android {
         applicationId = "com.veylo.player"
         minSdk = 21
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.3.1"
+        versionCode = 5
+        versionName = "0.3.2"
         // Phones and TV boxes (most boxes are 32-bit ARM).
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
     }
