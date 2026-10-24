@@ -32,6 +32,14 @@ class MainActivity : ComponentActivity() {
             }
         }
         app.start()
+        app.handleExternal(intent)
+    }
+
+    // GillTV asks for a channel while Veylo is already open (singleTask).
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        app.handleExternal(intent)
     }
 
     // In the background the stream stops (frees the provider connection) and restarts on return.

@@ -105,6 +105,10 @@ fun SettingsScreen(app: AppState) {
                 app.showToast("Used after the next sign-in (Reload channels)")
             })
             SettingRow("Start with the last channel", if (app.store.autostart) "On" else "Off", { app.store.autostart = !app.store.autostart; version += 1 })
+            SettingRow("Use with GillTV", if (app.store.bridgeEnabled) "On" else "Off", {
+                app.store.bridgeEnabled = !app.store.bridgeEnabled
+                version += 1
+            })
             if (session != null) SettingRow("Reload channels", "${session.channels.size} channels", { app.connect(session.provider, save = false) })
 
             if (session?.xtream != null) {

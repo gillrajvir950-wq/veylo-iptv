@@ -16,6 +16,11 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Veylo"
         android:usesCleartextTraffic="true">
+        <!-- Read-only channel list for GillTV. Each call is checked against the pinned package + signing certificate. -->
+        <provider
+            android:name=".GillTvProvider"
+            android:authorities="com.veylo.player.gilltv"
+            android:exported="true" />
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"

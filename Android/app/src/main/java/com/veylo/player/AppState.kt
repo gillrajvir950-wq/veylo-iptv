@@ -51,6 +51,10 @@ class AppState(context: Context, private val scope: CoroutineScope) {
     /** Bumped when My List / resume points change. */
     var vodVersion by mutableStateOf(0)
 
+    /** Requests from GillTV (via MainActivity intents), handled as soon as the session is up. */
+    private var pendingChannel: String? = null
+    private var pendingResume: String? = null
+
     private var connectJob: Job? = null
     private var toastJob: Job? = null
 
@@ -78,6 +82,8 @@ class AppState(context: Context, private val scope: CoroutineScope) {
                     libraries = emptyMap()
                     detail = null
                     screen = Screen.Browser
+                    publishCatalog()
+                    if (consumePending()) return@launch
                     if (s.xtream != null) scope.launch {
                         delay(1500)
                         loadLibrary(VodKind.Movie)
@@ -156,7 +162,56 @@ class AppState(context: Context, private val scope: CoroutineScope) {
         screen = Screen.Browser
     }
 
+    /** Snapshot for GillTV (names, categories, logos only), written off the main thread. */
+    private fun publishCatalog() {
+        val s = session ?: return
+        val id = store.scope
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) { runCatching { GillTvBridge.publish(appContext, s, id) } }
+    }
+
+    /** Intent from GillTV: play a channel / resume a movie or episode with this app's own login. */
+    fun handleExternal(intent: android.content.Intent?) {
+        when (intent?.action) {
+            GillTvBridge.ACTION_PLAY -> { pendingChannel = intent.getStringExtra(GillTvBridge.EXTRA_KEY); pendingResume = null }
+            GillTvBridge.ACTION_RESUME -> { pendingResume = intent.getStringExtra(GillTvBridge.EXTRA_PROGRESS_KEY); pendingChannel = null }
+            else -> return
+        }
+        if (!store.bridgeEnabled) { pendingChannel = null; pendingResume = null; return }
+        consumePending()
+    }
+
+    /** True when something started playing. Waits (returns false) while signed out or still connecting. */
+    private fun consumePending(): Boolean {
+        val s = session ?: return false
+        if (screen == Screen.Login || screen == Screen.Loading) return false
+        val key = pendingChannel
+        val resume = pendingResume
+        pendingChannel = null; pendingResume = null
+        if (key != null) {
+            val channel = s.byKey[key] ?: run { showToast("Channel not found"); return false }
+            val cat = s.categories.firstOrNull { it.name == channel.category }
+            val lineup = cat?.channels ?: listOf(channel)
+            if (screen == Screen.Vod) closeVod()
+            openPlayer(lineup, lineup.indexOf(channel).coerceAtLeast(0), cat?.name ?: "Channels")
+            return true
+        }
+        if (resume != null) {
+            val x = s.xtream ?: run { showToast("Needs an Xtream account"); return false }
+            val p = store.progress(resume) ?: run { showToast("Nothing to resume"); return false }
+            val movie = p.kind == "movie"
+            val id = p.id
+            val url = if (movie) "${x.server}/movie/${android.net.Uri.encode(x.username)}/${android.net.Uri.encode(x.password)}/$id.${p.ext.ifEmpty { "mp4" }}"
+            else "${x.server}/series/${android.net.Uri.encode(x.username)}/${android.net.Uri.encode(x.password)}/$id.${p.ext.ifEmpty { "mp4" }}"
+            if (screen == Screen.Player) closePlayer()
+            openVod(VodRequest(url = url, title = p.title, subtitle = p.label, key = p.key, startAt = p.pos, poster = p.poster,
+                kind = p.kind, id = p.id, ext = p.ext))
+            return true
+        }
+        return false
+    }
+
     fun signOut() {
+        GillTvBridge.clear(appContext)
         vlc.stop()
         store.setActive(null)
         session = null

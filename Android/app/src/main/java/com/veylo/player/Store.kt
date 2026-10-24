@@ -131,6 +131,11 @@ class Store(context: Context) {
         get() = prefs.getString("format", "ts") ?: "ts"
         set(value) = prefs.edit().putString("format", value).apply()
 
+    /** Lets GillTV (pinned app) browse channels and start playback here. No credentials are ever shared. */
+    var bridgeEnabled: Boolean
+        get() = prefs.getBoolean("gilltvBridge", true)
+        set(value) = prefs.edit().putBoolean("gilltvBridge", value).apply()
+
     var autostart: Boolean
         get() = prefs.getBoolean("autostart", true)
         set(value) = prefs.edit().putBoolean("autostart", value).apply()
