@@ -57,7 +57,8 @@ fun SettingsScreen(app: AppState) {
     val first = remember { FocusRequester() }
 
     BackHandler { if (session != null) app.tab = Tab.Home else app.screen = Screen.Login }
-    LaunchedEffect(Unit) { if (isTv(app)) { delay(150); runCatching { first.requestFocus() } } }
+    val tv = isTv(app)
+    LaunchedEffect(Unit) { if (tv) { delay(150); runCatching { first.requestFocus() } } }
     LaunchedEffect(session) {
         val x = session?.xtream ?: return@LaunchedEffect
         account = withContext(Dispatchers.IO) { runCatching { x.authenticate() }.getOrNull() }
