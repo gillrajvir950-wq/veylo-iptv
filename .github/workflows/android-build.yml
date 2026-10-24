@@ -22,28 +22,29 @@ jobs:
           gradle-version: '8.9'
 
       # The same signing key for every build, so a new APK installs over the old one (keeps the
-      # saved accounts). It is the build machine's own debug key, kept in the Actions cache —
-      # never committed to this public repository.
+      # saved accounts). The key is made once by the workflow and kept in the Actions cache —
+      # never committed to this public repository. (The debug key Gradle makes on its own is
+      # new on every runner, which is why 0.1–0.3.0 could not be installed over each other.)
       - name: Restore signing key
         id: key
         uses: actions/cache/restore@v4
         with:
-          path: ~/.android/debug.keystore
-          key: veylo-android-signing-key-v1
+          path: ~/veylo-signing/veylo-release.jks
+          key: veylo-android-release-key-v1
 
       - name: Create signing key (first build only)
         if: steps.key.outputs.cache-hit != 'true'
         run: |
-          mkdir -p ~/.android
-          keytool -genkeypair -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey \
-            -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Veylo,O=Veylo,C=US"
+          mkdir -p ~/veylo-signing
+          keytool -genkeypair -keystore ~/veylo-signing/veylo-release.jks -storepass veylo-android -alias veylo \
+            -keypass veylo-android -keyalg RSA -keysize 2048 -validity 20000 -dname "CN=Veylo,O=Veylo,C=US"
 
       - name: Save signing key
         if: steps.key.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
-          path: ~/.android/debug.keystore
-          key: veylo-android-signing-key-v1
+          path: ~/veylo-signing/veylo-release.jks
+          key: veylo-android-release-key-v1
 
       - name: Read version
         id: ver
@@ -53,6 +54,7 @@ jobs:
         working-directory: Android
         run: |
           set -o pipefail
+          export VEYLO_KEYSTORE="$HOME/veylo-signing/veylo-release.jks"
           gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
 
       - name: Report build errors

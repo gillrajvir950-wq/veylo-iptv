@@ -11,18 +11,30 @@ android {
         applicationId = "com.veylo.player"
         minSdk = 21
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.3.1"
         // Phones and TV boxes (most boxes are 32-bit ARM).
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
+    }
+
+    // One fixed key (made by the workflow, kept in the Actions cache — never in this repo), so
+    // every new APK installs over the previous one. Local builds fall back to the debug key.
+    val keystore = System.getenv("VEYLO_KEYSTORE")?.let { file(it) }?.takeIf { it.exists() }
+    signingConfigs {
+        if (keystore != null) {
+            create("veylo") {
+                storeFile = keystore
+                storePassword = "veylo-android"
+                keyAlias = "veylo"
+                keyPassword = "veylo-android"
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Signed with the build machine's debug key (kept between builds by the workflow cache)
-            // so a new APK installs over the old one. No signing secrets live in this public repo.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (keystore != null) signingConfigs.getByName("veylo") else signingConfigs.getByName("debug")
         }
     }
 
