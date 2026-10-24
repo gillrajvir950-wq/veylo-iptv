@@ -56,25 +56,22 @@ fun SettingsScreen(app: AppState) {
     val providers = remember(version, app.listsVersion) { app.store.providers().sortedByDescending { it.lastUsed } }
     val first = remember { FocusRequester() }
 
-    BackHandler { app.screen = if (session != null) Screen.Browser else Screen.Login }
-    LaunchedEffect(Unit) { delay(120); runCatching { first.requestFocus() } }
+    BackHandler { if (session != null) app.tab = Tab.Home else app.screen = Screen.Login }
+    LaunchedEffect(Unit) { if (isTv(app)) { delay(150); runCatching { first.requestFocus() } } }
     LaunchedEffect(session) {
         val x = session?.xtream ?: return@LaunchedEffect
         account = withContext(Dispatchers.IO) { runCatching { x.authenticate() }.getOrNull() }
     }
 
-    Box(Modifier.fillMaxSize().background(VColor.Bg), contentAlignment = Alignment.TopCenter) {
-        Column(Modifier.widthIn(max = 760.dp).fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Settings", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Pill("Back", { app.screen = if (session != null) Screen.Browser else Screen.Login }, focusRequester = first)
-            }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        Column(Modifier.widthIn(max = 760.dp).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp)) {
+            Text("Settings", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
 
             Heading("ACCOUNTS")
             providers.forEach { p ->
                 val watching = session?.provider?.id == p.id
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FocusRow(onClick = { if (watching) app.screen = Screen.Browser else app.connect(p, save = true) }, modifier = Modifier.weight(1f).padding(vertical = 2.dp)) { f ->
+                    FocusRow(onClick = { if (watching) app.tab = Tab.Live else app.connect(p, save = true) }, modifier = Modifier.weight(1f).padding(vertical = 2.dp), focusRequester = if (p == providers.firstOrNull()) first else null) { f ->
                         Column(Modifier.weight(1f)) {
                             Text(p.name, color = if (f) Color.Black else VColor.Text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                             Text(if (p.kind == "xtream") "Xtream · ${p.username}" else "M3U playlist", color = if (f) Color.DarkGray else VColor.Faint, fontSize = 13.sp)
@@ -90,7 +87,7 @@ fun SettingsScreen(app: AppState) {
                     })
                 }
             }
-            SettingRow("Add account", "Xtream or M3U  ›", { app.adding = true; app.loginError = null; app.screen = Screen.Login })
+            SettingRow("Add account", "Xtream or M3U  ›", { app.adding = true; app.loginError = null; app.screen = Screen.Login }, focusRequester = if (providers.isEmpty()) first else null)
 
             if (account != null) {
                 val a = account!!

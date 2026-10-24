@@ -52,13 +52,12 @@ fun VeyloApp(app: AppState) {
         when (app.screen) {
             Screen.Login -> LoginScreen(app)
             Screen.Loading -> LoadingScreen(app)
-            Screen.Browser -> BrowserScreen(app)
-            Screen.Settings -> SettingsScreen(app)
-            Screen.Player -> app.player?.let { PlayerScreen(app, it) } ?: BrowserScreen(app)
+            Screen.Browser -> MainShell(app)
+            Screen.Player -> app.player?.let { PlayerScreen(app, it) } ?: MainShell(app)
         }
         val toast = app.toast
         if (toast != null && app.screen != Screen.Player) {
-            Text(toast, color = Color.White, fontSize = 16.sp, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp)
+            Text(toast, color = Color.White, fontSize = 16.sp, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 120.dp)
                 .background(Color(0xEE1E1B26), RoundedCornerShape(30.dp)).padding(horizontal = 22.dp, vertical = 12.dp))
         }
     }

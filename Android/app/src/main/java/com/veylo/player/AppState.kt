@@ -9,7 +9,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-enum class Screen { Login, Loading, Browser, Settings, Player }
+enum class Screen { Login, Loading, Browser, Player }
+
+/** Sections of the signed-in app (bottom bar on phones, top menu on TV). */
+enum class Tab(val title: String) { Home("Home"), Live("Live TV"), Settings("Settings") }
 
 class PlayerRequest(val lineup: List<Channel>, val index: Int, val title: String)
 
@@ -19,6 +22,7 @@ class AppState(context: Context, private val scope: CoroutineScope) {
     val vlc by lazy { Vlc(context) }
 
     var screen by mutableStateOf(Screen.Login)
+    var tab by mutableStateOf(Tab.Home)
     var session by mutableStateOf<Session?>(null)
     var loadingText by mutableStateOf("")
     var loginError by mutableStateOf<String?>(null)
@@ -54,6 +58,7 @@ class AppState(context: Context, private val scope: CoroutineScope) {
                     store.scope = saved.id.ifEmpty { "default" }
                     session = Session(saved, s.xtream, s.channels, s.categories, s.countries)
                     adding = false
+                    tab = Tab.Home
                     screen = Screen.Browser
                     if (autostart && store.autostart) {
                         val last = session?.byKey?.get(store.lastChannel)
@@ -81,6 +86,11 @@ class AppState(context: Context, private val scope: CoroutineScope) {
                 }
             }
         }
+    }
+
+    fun showSettings() {
+        tab = Tab.Settings
+        screen = Screen.Browser
     }
 
     fun signOut() {

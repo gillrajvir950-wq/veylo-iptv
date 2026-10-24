@@ -92,7 +92,7 @@ fun LoginScreen(app: AppState) {
     var localError by remember { mutableStateOf<String?>(null) }
     val saved = remember(app.listsVersion) { app.store.providers().sortedByDescending { it.lastUsed } }
 
-    BackHandler(enabled = app.adding && app.session != null) { app.adding = false; app.screen = Screen.Settings }
+    BackHandler(enabled = app.adding && app.session != null) { app.adding = false; app.showSettings() }
 
     Box(Modifier.fillMaxSize().background(VColor.Bg), contentAlignment = Alignment.TopCenter) {
         Column(
@@ -162,7 +162,7 @@ fun LoginScreen(app: AppState) {
                     }
                     app.connect(p, save)
                 }, primary = true)
-                if (app.adding && app.session != null) Pill("Back", { app.adding = false; app.screen = Screen.Settings })
+                if (app.adding && app.session != null) Pill("Back", { app.adding = false; app.showSettings() })
             }
             Spacer(Modifier.height(30.dp))
             Text("Veylo plays streams from your own provider. Use it only for content you are allowed to watch.", color = VColor.Faint, fontSize = 12.sp)
