@@ -69,6 +69,10 @@ jobs:
           mkdir -p out
           cp Android/app/build/outputs/apk/release/app-release.apk "out/Veylo-${{ steps.ver.outputs.version }}.apk"
           ls -la out
+          # Signing certificate of this APK: must be the same on every build, or Android refuses
+          # to install the new APK over the old one.
+          CERT=$(keytool -printcert -jarfile out/*.apk 2>/dev/null | grep -m1 "SHA256:" | sed 's/.*SHA256: //')
+          echo "::notice title=Signing key::SHA-256 ${CERT:-unknown}"
           echo "::notice title=APK::Veylo-${{ steps.ver.outputs.version }}.apk ($(du -h out/*.apk | cut -f1))"
 
       - uses: actions/upload-artifact@v4
