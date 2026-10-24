@@ -38,6 +38,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         if (app.screen == Screen.Player) { app.vlc.stop(); stoppedWhilePlaying = true }
+        if (app.screen == Screen.Vod) { try { app.vlc.player.pause() } catch (e: Exception) { } }
     }
 
     override fun onStart() {
@@ -54,6 +55,7 @@ fun VeyloApp(app: AppState) {
             Screen.Loading -> LoadingScreen(app)
             Screen.Browser -> MainShell(app)
             Screen.Player -> app.player?.let { PlayerScreen(app, it) } ?: MainShell(app)
+            Screen.Vod -> app.vod?.let { VodPlayerScreen(app, it) } ?: MainShell(app)
         }
         val toast = app.toast
         if (toast != null && app.screen != Screen.Player) {

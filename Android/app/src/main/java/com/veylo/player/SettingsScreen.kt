@@ -107,6 +107,21 @@ fun SettingsScreen(app: AppState) {
             SettingRow("Start with the last channel", if (app.store.autostart) "On" else "Off", { app.store.autostart = !app.store.autostart; version += 1 })
             if (session != null) SettingRow("Reload channels", "${session.channels.size} channels", { app.connect(session.provider, save = false) })
 
+            if (session?.xtream != null) {
+                Heading("MOVIES & SERIES")
+                SettingRow("Reload movies & series", "Download the lists again", {
+                    Vod.clearCache(app.appContext)
+                    app.loadLibrary(VodKind.Movie, force = true)
+                    app.loadLibrary(VodKind.Series, force = true)
+                    app.showToast("Reloading movies & series…")
+                })
+                SettingRow("Clear Continue Watching", "", {
+                    app.store.clearProgress()
+                    app.vodVersion += 1
+                    app.showToast("Continue Watching cleared")
+                })
+            }
+
             Heading("ABOUT")
             SettingRow("Veylo for Android", "v" + BuildConfig.VERSION_NAME, {})
             Spacer(Modifier.height(18.dp))

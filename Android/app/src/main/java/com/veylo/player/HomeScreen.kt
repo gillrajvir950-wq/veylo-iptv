@@ -51,6 +51,10 @@ fun HomeScreen(app: AppState, wide: Boolean, bottomSpace: Int) {
         (country?.categories ?: session.categories).filter { it.channels.isNotEmpty() }.take(10)
     }
     val tileWidth = if (wide) 236.dp else 158.dp
+    val posterWidth = if (wide) 150.dp else 112.dp
+    val started = remember(app.vodVersion, session) { app.store.progressAll().take(20) }
+    val movies = app.libraries[VodKind.Movie]?.lib
+    val seriesLib = app.libraries[VodKind.Series]?.lib
     val side = if (wide) 40.dp else 20.dp
     val heroFocus = remember { FocusRequester() }
     val tv = isTv(app)
@@ -83,6 +87,25 @@ fun HomeScreen(app: AppState, wide: Boolean, bottomSpace: Int) {
         }
         if (recents.size > 1) item { Shelf(app, "Recently watched", recents, favoriteKeys, tileWidth, side) }
         if (favorites.isNotEmpty()) item { Shelf(app, "Favorites", favorites, favoriteKeys, tileWidth, side) }
+        if (started.isNotEmpty()) item {
+            PosterShelf("Continue watching", started.map { p ->
+                PosterEntry(p.key, p.title, p.poster, if (p.kind == "episode") p.label else "", p.fraction) { openProgress(app, p) }
+            }, posterWidth, side)
+        }
+        movies?.let { lib ->
+            item(key = "new-movies") {
+                PosterShelf("Recently added movies", lib.items.sortedByDescending { it.added }.take(24).map { m ->
+                    PosterEntry(m.key, m.title, m.poster, metaOf(m), null) { app.detail = m }
+                }, posterWidth, side)
+            }
+        }
+        seriesLib?.let { lib ->
+            item(key = "new-series") {
+                PosterShelf("Recently added series", lib.items.sortedByDescending { it.added }.take(24).map { m ->
+                    PosterEntry(m.key, m.title, m.poster, metaOf(m), null) { app.detail = m }
+                }, posterWidth, side)
+            }
+        }
         shelves.forEach { cat ->
             item(key = "cat:" + cat.name) { Shelf(app, Names.title(cat.name), cat.channels, favoriteKeys, tileWidth, side, cat.channels.size) }
         }
@@ -150,4 +173,29 @@ private fun Shelf(app: AppState, title: String, channels: List<Channel>, favorit
             }
         }
     }
+}
+
+class PosterEntry(val key: String, val title: String, val poster: String, val meta: String, val progress: Float?, val onClick: () -> Unit)
+
+@Composable
+private fun PosterShelf(title: String, entries: List<PosterEntry>, width: androidx.compose.ui.unit.Dp, side: androidx.compose.ui.unit.Dp) {
+    if (entries.isEmpty()) return
+    Column(Modifier.padding(top = 18.dp)) {
+        SectionTitle(title, Modifier.padding(horizontal = side, vertical = 6.dp))
+        LazyRow(contentPadding = PaddingValues(horizontal = side, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            itemsIndexed(entries, key = { i, e -> "$i:" + e.key }) { _, e ->
+                PosterCard(e.title, e.poster, e.meta, e.progress, onClick = e.onClick, modifier = Modifier.width(width))
+            }
+        }
+    }
+}
+
+/** Continue watching: open the movie or series page (the saved entry has enough to show it). */
+fun openProgress(app: AppState, p: Store.Progress) {
+    val movie = p.kind == "movie"
+    val kind = if (movie) VodKind.Movie else VodKind.Series
+    val id = if (movie) p.id else p.series
+    if (id.isEmpty()) return
+    val known = app.libraries[kind]?.lib?.byId?.get(id)
+    app.detail = known ?: VodItem(kind, id, p.title, p.title, "", 0.0, p.poster, "", "", 0, p.ext.ifEmpty { "mp4" }, "")
 }

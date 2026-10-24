@@ -49,6 +49,42 @@ class Vlc(context: Context) {
         player.play()
     }
 
+    /** Movie / episode, optionally from a second. */
+    fun playVod(url: String, startAt: Long) {
+        val media = Media(libVlc, Uri.parse(url))
+        media.setHWDecoderEnabled(true, false)
+        media.addOption(":network-caching=3000")
+        if (startAt > 5) media.addOption(":start-time=$startAt")
+        player.media = media
+        media.release()
+        player.play()
+    }
+
+    /** Milliseconds. */
+    val time: Long get() = try { player.time } catch (e: Exception) { 0L }
+    val length: Long get() = try { player.length } catch (e: Exception) { 0L }
+
+    fun seekTo(ms: Long) {
+        val len = length
+        val target = if (len > 0) ms.coerceIn(0, len - 1000) else ms.coerceAtLeast(0)
+        try { player.setTime(target) } catch (e: Exception) { }
+    }
+
+    class Track(val id: Int, val name: String)
+
+    fun audioTracks(): List<Track> = try {
+        player.audioTracks?.filter { it.id >= 0 }?.map { Track(it.id, it.name ?: "Track ${it.id}") } ?: emptyList()
+    } catch (e: Exception) { emptyList() }
+
+    fun subtitleTracks(): List<Track> = try {
+        player.spuTracks?.map { Track(it.id, if (it.id < 0) "Off" else (it.name ?: "Subtitle ${it.id}")) } ?: emptyList()
+    } catch (e: Exception) { emptyList() }
+
+    val audioTrack: Int get() = try { player.audioTrack } catch (e: Exception) { -1 }
+    val subtitleTrack: Int get() = try { player.spuTrack } catch (e: Exception) { -1 }
+    fun selectAudio(id: Int) { try { player.setAudioTrack(id) } catch (e: Exception) { } }
+    fun selectSubtitle(id: Int) { try { player.setSpuTrack(id) } catch (e: Exception) { } }
+
     fun togglePause(): Boolean {
         return if (player.isPlaying) { player.pause(); true } else { player.play(); false }
     }

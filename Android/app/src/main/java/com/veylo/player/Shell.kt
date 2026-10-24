@@ -24,6 +24,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.foundation.layout.size
@@ -43,11 +45,14 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun MainShell(app: AppState) {
     val tv = isTv(app)
-    BackHandler(enabled = app.tab != Tab.Home) { app.tab = Tab.Home }
+    BackHandler(enabled = app.tab != Tab.Home && app.detail == null) { app.tab = Tab.Home }
     Backdrop {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val wide = tv || maxWidth >= 720.dp
-            if (wide) {
+            val detail = app.detail
+            if (detail != null) {
+                DetailScreen(app, detail, wide)
+            } else if (wide) {
                 Column(Modifier.fillMaxSize().statusBarsPadding()) {
                     TopMenu(app)
                     Box(Modifier.weight(1f)) { Page(app, wide = true, bottomSpace = 0) }
@@ -67,6 +72,8 @@ private fun Page(app: AppState, wide: Boolean, bottomSpace: Int) {
     when (app.tab) {
         Tab.Home -> HomeScreen(app, wide, bottomSpace)
         Tab.Live -> LiveScreen(app, wide, bottomSpace)
+        Tab.Movies -> LibraryScreen(app, VodKind.Movie, wide, bottomSpace)
+        Tab.Series -> LibraryScreen(app, VodKind.Series, wide, bottomSpace)
         Tab.Settings -> Box(Modifier.fillMaxSize().padding(bottom = bottomSpace.dp)) { SettingsScreen(app) }
     }
 }
@@ -96,9 +103,10 @@ private fun TopMenu(app: AppState) {
 
 @Composable
 private fun BottomBar(app: AppState, modifier: Modifier) {
-    val icons = mapOf(Tab.Home to Icons.Filled.Home, Tab.Live to Icons.Filled.PlayArrow, Tab.Settings to Icons.Filled.Settings)
+    val icons = mapOf(Tab.Home to Icons.Filled.Home, Tab.Live to Icons.Filled.PlayArrow, Tab.Movies to Icons.Filled.Star,
+        Tab.Series to Icons.Filled.List, Tab.Settings to Icons.Filled.Settings)
     Row(
-        modifier.navigationBarsPadding().padding(horizontal = 22.dp, vertical = 10.dp).fillMaxWidth()
+        modifier.navigationBarsPadding().padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth()
             .shadow(18.dp, RoundedCornerShape(40.dp))
             .clip(RoundedCornerShape(40.dp)).background(Color(0xF21A1722))
             .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(40.dp)).padding(5.dp),
@@ -114,7 +122,7 @@ private fun BottomBar(app: AppState, modifier: Modifier) {
             ) {
                 Icon(icons.getValue(t), contentDescription = t.title, tint = if (active) VColor.Accent else Color(0x9EFFFFFF), modifier = Modifier.size(22.dp))
                 Spacer(Modifier.height(2.dp))
-                Text(t.title, color = if (active) VColor.Accent else Color(0x9EFFFFFF), fontSize = 11.sp,
+                Text(if (t == Tab.Live) "Live" else t.title, color = if (active) VColor.Accent else Color(0x9EFFFFFF), fontSize = 11.sp, maxLines = 1,
                     fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium)
             }
         }

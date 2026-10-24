@@ -75,6 +75,53 @@ class Store(context: Context) {
     fun recents() = list("recents")
     fun addRecent(key: String) = putList("recents", (listOf(key) + recents().filter { it != key }).take(30))
 
+    // ---------- Movies & Series (per account) ----------
+    fun myList(kind: VodKind) = list("mylist." + kind.name)
+    fun toggleMyList(kind: VodKind, id: String): Boolean {
+        val l = myList(kind).toMutableList()
+        val added = !l.remove(id)
+        if (added) l.add(0, id)
+        putList("mylist." + kind.name, l)
+        return added
+    }
+
+    /** kind "movie" (id = movie id) or "episode" (id = episode id, series = series id, label = "S1 · E2 · title"). */
+    class Progress(val key: String, val pos: Long, val dur: Long, val t: Long, val title: String, val poster: String,
+                   val kind: String, val id: String, val ext: String, val series: String, val label: String) {
+        val fraction: Float get() = if (dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f
+    }
+
+    /** Where movies / episodes were stopped (seconds), newest first. */
+    fun progressAll(): List<Progress> = try {
+        val o = JSONObject(prefs.getString("progress.$scope", "{}") ?: "{}")
+        o.keys().asSequence().mapNotNull { k ->
+            val p = o.optJSONObject(k) ?: return@mapNotNull null
+            Progress(k, p.optLong("pos"), p.optLong("dur"), p.optLong("t"), p.str("title"), p.str("poster"), p.str("kind"), p.str("id"), p.str("ext"),
+                p.str("series"), p.str("label"))
+        }.sortedByDescending { it.t }.toList()
+    } catch (e: Exception) { emptyList() }
+
+    fun progress(key: String): Progress? = progressAll().firstOrNull { it.key == key }
+
+    /** pos = null removes the entry (finished or restarted). Keeps the newest 300. */
+    fun setProgress(key: String, pos: Long?, dur: Long = 0, title: String = "", poster: String = "", kind: String = "", id: String = "",
+                    ext: String = "", series: String = "", label: String = "") {
+        val o = try { JSONObject(prefs.getString("progress.$scope", "{}") ?: "{}") } catch (e: Exception) { JSONObject() }
+        o.remove(key)
+        if (pos != null) {
+            o.put(key, JSONObject().put("pos", pos).put("dur", dur).put("t", System.currentTimeMillis())
+                .put("title", title).put("poster", poster).put("kind", kind).put("id", id).put("ext", ext)
+                .put("series", series).put("label", label))
+        }
+        if (o.length() > 300) {
+            val keep = o.keys().asSequence().map { it to (o.optJSONObject(it)?.optLong("t") ?: 0) }.toList().sortedByDescending { it.second }.drop(300)
+            keep.forEach { o.remove(it.first) }
+        }
+        prefs.edit().putString("progress.$scope", o.toString()).apply()
+    }
+
+    fun clearProgress() = prefs.edit().remove("progress.$scope").apply()
+
     var lastChannel: String
         get() = prefs.getString("lastChannel.$scope", "") ?: ""
         set(value) = prefs.edit().putString("lastChannel.$scope", value).apply()
