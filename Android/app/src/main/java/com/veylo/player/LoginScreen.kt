@@ -82,12 +82,13 @@ private fun field(label: String, value: String, onChange: (String) -> Unit, pass
 
 @Composable
 fun LoginScreen(app: AppState) {
-    var kind by rememberSaveable { mutableStateOf("xtream") }
-    var name by rememberSaveable { mutableStateOf("") }
-    var server by rememberSaveable { mutableStateOf("") }
-    var username by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
-    var playlist by rememberSaveable { mutableStateOf("") }
+    val prefill = app.loginPrefill
+    var kind by rememberSaveable { mutableStateOf(prefill?.kind ?: "xtream") }
+    var name by rememberSaveable { mutableStateOf(prefill?.name ?: "") }
+    var server by rememberSaveable { mutableStateOf(prefill?.server ?: "") }
+    var username by rememberSaveable { mutableStateOf(prefill?.username ?: "") }
+    var password by rememberSaveable { mutableStateOf(prefill?.password ?: "") }
+    var playlist by rememberSaveable { mutableStateOf(prefill?.playlistUrl ?: "") }
     var save by rememberSaveable { mutableStateOf(true) }
     var localError by remember { mutableStateOf<String?>(null) }
     val saved = remember(app.listsVersion) { app.store.providers().sortedByDescending { it.lastUsed } }

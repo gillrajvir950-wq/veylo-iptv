@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.2.10';
+  var VERSION = '0.2.11';
 
   // ---------- Keys ----------
   var K = {
@@ -590,6 +590,10 @@
         node.querySelector('.box').textContent = form.save ? '✓' : '';
       } else if (action === 'connect') {
         readForm();
+        // "host:8080" typed without http:// is accepted (same as the phone apps).
+        if (form.kind === 'xtream' && form.server && !/^[a-z][a-z0-9+.-]*:\/\//i.test(form.server.trim())) {
+          form.server = 'http://' + form.server.trim();
+        }
         var profile = form.kind === 'xtream'
           ? { kind: 'xtream', server: form.server, username: form.username, password: form.password }
           : { kind: 'm3u', playlistURL: form.playlistURL, epgURL: form.epgURL || '' };
@@ -635,9 +639,14 @@
     showLoading('Connecting to ' + (profile.name || Store.hostOf(profile.server || profile.playlistURL)) + '…');
     API.connect(profile, Store.format()).then(function (result) {
       var saved = profile;
-      if (save) {
+      // An account saved earlier and typed again (e.g. with a new password) is updated even when
+      // "Save this provider" was off, so the saved copy never keeps an old password.
+      var known = !save && !profile.id ? Store.matchProvider(profile) : null;
+      if (save || known) {
+        if (known && !profile.name) profile.name = known.name;
+        if (known && profile.kind === 'm3u' && !profile.epgURL) profile.epgURL = known.epgURL || '';
         saved = Store.saveProvider(profile);
-        Store.setActive(saved.id);
+        if (save) Store.setActive(saved.id);
       }
       App.session = {
         profile: saved,
@@ -668,8 +677,19 @@
         return;
       }
       var message = (error && error.message) || 'Couldn’t connect.';
-      if (formState) showLogin(message, formState);
-      else showLogin('Couldn’t open ' + (profile.name || 'the saved provider') + '. ' + message);
+      if (formState) { showLogin(message, formState); return; }
+      // Switching accounts while one is open: keep watching the current one.
+      if (App.session && !autostart) {
+        if (global.VeyloHome) global.VeyloHome.show(); else showBrowser();
+        toast('Couldn’t open ' + (profile.name || 'that account') + ': ' + message);
+        return;
+      }
+      // A saved account: its details stay in the form, so a new password or a retry is one step.
+      showLogin('Couldn’t open ' + (profile.name || 'the saved provider') + '. ' + message, {
+        kind: profile.kind || 'xtream', server: profile.server || '', username: profile.username || '',
+        password: profile.password || '', playlistURL: profile.playlistURL || '', epgURL: profile.epgURL || '',
+        name: profile.name || '', save: true
+      });
     });
   }
 
@@ -1325,6 +1345,8 @@
         '<div class="group"><h3>PLAYBACK</h3>' +
           '<div class="item focusable" data-action="autostart">Start with the last channel<span class="value">' +
             (Store.autostart() ? 'On' : 'Off') + '</span></div>' +
+          '<div class="item focusable" data-action="avtest">Dot test (small video object)<span class="value">' +
+            (Store.avTest() ? 'On' : 'Off') + '</span></div>' +
 
           '<div class="item focusable" data-action="engine">Player<span class="value">' +
             (Player.engineEnabled() ? 'Veylo engine (like iPhone)' : 'Samsung player') + '</span></div>' +
@@ -1390,6 +1412,11 @@
 
       } else if (action === 'autostart') {
         Store.setAutostart(!Store.autostart());
+        showSettings();
+      } else if (action === 'avtest') {
+        Store.setAVTest(!Store.avTest());
+        applyAVTest();
+        toast(Store.avTest() ? 'Dot test on — play a channel and check the centre' : 'Dot test off');
         showSettings();
       } else if (action === 'refreshlib') {
         if (global.VeyloLibrary) global.VeyloLibrary.clearCache();
@@ -1794,9 +1821,16 @@
       });
     }
     if (global.VeyloEngine && global.VeyloEngine.cleanupTemp) global.VeyloEngine.cleanupTemp();
+    applyAVTest();
     var active = Store.active();
     if (active) connect(active, true, null, 3, true);
     else showLogin();
+  }
+
+  /** Dot test: the AVPlay <object> shrinks to 1 px in the corner (the video itself keeps its
+   *  full-screen display rect). If the dot disappears, the object was drawing it. */
+  function applyAVTest() {
+    document.documentElement.classList.toggle('av-test', !!Store.avTest());
   }
 
   global.VeyloApp = { start: start, version: VERSION };

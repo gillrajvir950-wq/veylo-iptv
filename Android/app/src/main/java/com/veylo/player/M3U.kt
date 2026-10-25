@@ -5,6 +5,19 @@ object M3U {
     private fun attribute(name: String, line: String): String =
         Regex("$name=\"([^\"]*)\"", RegexOption.IGNORE_CASE).find(line)?.groupValues?.get(1)?.trim() ?: ""
 
+    /** Name = text after the first comma outside quotes ("Star Sports 1, Hindi" stays whole, commas in
+     *  group-title="…" don't cut it). Unbalanced quotes: text after the last comma (old rule). */
+    fun extinfName(line: String): String {
+        var quoted = false
+        for (i in line.indices) {
+            val ch = line[i]
+            if (ch == '"') quoted = !quoted
+            else if (ch == ',' && !quoted) return line.substring(i + 1).trim()
+        }
+        val comma = line.lastIndexOf(',')
+        return if (comma >= 0) line.substring(comma + 1).trim() else ""
+    }
+
     fun parse(text: String, baseUrl: String): List<Channel> {
         val channels = ArrayList<Channel>()
         var pending: Array<String>? = null   // name, group, logo, tvg-id
@@ -12,9 +25,8 @@ object M3U {
             val line = raw.trim()
             if (line.isEmpty()) continue
             if (line.startsWith("#EXTINF:")) {
-                val comma = line.lastIndexOf(',')
                 pending = arrayOf(
-                    if (comma >= 0) line.substring(comma + 1).trim() else "",
+                    extinfName(line),
                     attribute("group-title", line), attribute("tvg-logo", line), attribute("tvg-id", line)
                 )
             } else if (!line.startsWith("#")) {

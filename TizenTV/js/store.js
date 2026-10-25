@@ -40,6 +40,18 @@
     return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
 
+  /** Same server however it was typed ("HTTP://Host:80/" = "http://host:80"). */
+  function sameServer(a, b) {
+    function norm(s) { return String(s || '').trim().replace(/\/+$/, '').toLowerCase(); }
+    return norm(a) === norm(b);
+  }
+
+  function matches(p, profile) {
+    return p.kind === profile.kind && (profile.kind === 'xtream'
+      ? (sameServer(p.server, profile.server) && p.username === profile.username)
+      : String(p.playlistURL || '').trim() === String(profile.playlistURL || '').trim());
+  }
+
   function hostOf(url) {
     var match = /^[a-z]+:\/\/([^\/:?#]+)/i.exec(url || '');
     return match ? match[1] : 'Provider';
@@ -49,15 +61,17 @@
     /** [{id, name, kind:'xtream'|'m3u', server, username, password, playlistURL, lastUsed}] */
     providers: function () { return read(KEYS.providers, []); },
 
+    /** The saved account for these login details, if any. */
+    matchProvider: function (profile) {
+      return Store.providers().filter(function (p) { return matches(p, profile); })[0] || null;
+    },
+
     saveProvider: function (profile) {
       var list = Store.providers();
       var index = -1;
       for (var i = 0; i < list.length; i++) {
         var p = list[i];
-        var same = profile.id ? p.id === profile.id
-          : (p.kind === profile.kind && (profile.kind === 'xtream'
-              ? (p.server === profile.server && p.username === profile.username)
-              : p.playlistURL === profile.playlistURL));
+        var same = profile.id ? p.id === profile.id : matches(p, profile);
         if (same) { index = i; break; }
       }
       if (index >= 0) {
@@ -181,6 +195,9 @@
     lastChannel: function () { return read(scoped('veylo.tv.lastChannel'), ''); },
     setLastChannel: function (key) { write(scoped('veylo.tv.lastChannel'), key); },
     autostart: function () { return read('veylo.tv.autostart', true); },
+    /** Test switch for the dot over the video: shrinks the AVPlay <object> to 1 px in the corner. */
+    avTest: function () { return read('veylo.tv.avTest', false); },
+    setAVTest: function (on) { write('veylo.tv.avTest', !!on); },
     setAutostart: function (on) { write('veylo.tv.autostart', !!on); },
 
     /** 'ts' (default, like the iPhone app) or 'm3u8' for Xtream live streams. */

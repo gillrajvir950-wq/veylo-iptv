@@ -36,6 +36,8 @@ class AppState(context: Context, private val scope: CoroutineScope) {
     var session by mutableStateOf<Session?>(null)
     var loadingText by mutableStateOf("")
     var loginError by mutableStateOf<String?>(null)
+    /** Details of a saved account that failed to open, shown in the login form (fix password / retry). */
+    var loginPrefill by mutableStateOf<Provider?>(null)
     var player by mutableStateOf<PlayerRequest?>(null)
     /** Bumped when favorites/recents change, so lists recompose. */
     var listsVersion by mutableStateOf(0)
@@ -73,11 +75,15 @@ class AppState(context: Context, private val scope: CoroutineScope) {
             while (true) {
                 try {
                     val s = Repo.connect(provider, store.format)
-                    val saved = if (save) store.saveProvider(provider) else provider
+                    // Typed again on the login screen (e.g. a new password) with "Save" off: an account
+                    // saved earlier is still updated, so it never keeps the old password.
+                    val known = if (!save && provider.id.isEmpty()) store.matchProvider(provider) else null
+                    val saved = if (save || known != null) store.saveProvider(provider) else provider
                     if (save) store.setActive(saved.id) else if (saved.id.isNotEmpty()) store.touch(saved.id)
                     store.scope = saved.id.ifEmpty { "default" }
                     session = Session(saved, s.xtream, s.channels, s.categories, s.countries)
                     adding = false
+                    loginPrefill = null
                     tab = Tab.Home
                     libraries = emptyMap()
                     detail = null
@@ -109,7 +115,15 @@ class AppState(context: Context, private val scope: CoroutineScope) {
                         delay(4000)
                         continue
                     }
+                    // Switching accounts / Reload channels while signed in: stay on the open account.
+                    val open = session
+                    if (open != null && !autostart) {
+                        screen = Screen.Browser
+                        showToast("Couldn’t open ${provider.name.ifEmpty { "that account" }}: ${Repo.friendly(e)}")
+                        return@launch
+                    }
                     loginError = Repo.friendly(e)
+                    loginPrefill = provider
                     screen = Screen.Login
                     return@launch
                 }
@@ -214,6 +228,7 @@ class AppState(context: Context, private val scope: CoroutineScope) {
         GillTvBridge.clear(appContext)
         vlc.stop()
         store.setActive(null)
+        loginPrefill = null
         session = null
         player = null
         vod = null

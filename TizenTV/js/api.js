@@ -274,7 +274,11 @@
   };
 
   Xtream.prototype.authenticate = function () {
-    return fetchJSON(this.endpoint()).then(function (data) {
+    return fetchJSON(this.endpoint()).catch(function (error) {
+      // Some panels answer a wrong login with HTTP 401 instead of auth: 0.
+      if (error && error.status === 401) throw new Error('Wrong username or password.');
+      throw error;
+    }).then(function (data) {
       var info = data && data.user_info;
       if (!info || String(info.auth) !== '1') throw new Error('Wrong username or password.');
       return {
@@ -542,6 +546,19 @@
     return match ? match[1] : '';
   }
 
+  /** Channel name = text after the first comma outside quotes, so "Star Sports 1, Hindi" stays whole
+   *  and commas inside group-title="…" don't cut it. Unbalanced quotes: text after the last comma. */
+  function extinfName(line) {
+    var quoted = false;
+    for (var i = 0; i < line.length; i++) {
+      var ch = line.charAt(i);
+      if (ch === '"') quoted = !quoted;
+      else if (ch === ',' && !quoted) return line.slice(i + 1).trim();
+    }
+    var comma = line.lastIndexOf(',');
+    return comma >= 0 ? line.slice(comma + 1).trim() : '';
+  }
+
   function parseM3U(text, baseURL) {
     var lines = text.replace(/﻿/g, '').split(/\r?\n/);
     var channels = [];
@@ -553,9 +570,8 @@
       if (line.indexOf('#EXTM3U') === 0) {
         guide = attribute('url-tvg', line) || attribute('x-tvg-url', line);
       } else if (line.indexOf('#EXTINF:') === 0) {
-        var comma = line.lastIndexOf(',');
         pending = {
-          name: comma >= 0 ? line.slice(comma + 1).trim() : '',
+          name: extinfName(line),
           category: attribute('group-title', line),
           logo: attribute('tvg-logo', line),
           epgID: attribute('tvg-id', line)

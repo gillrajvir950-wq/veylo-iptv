@@ -10,7 +10,7 @@ import java.util.TimeZone
 
 /** Xtream Codes API. The live stream URL scheme is the same as on the iPhone app. */
 class Xtream(server: String, val username: String, val password: String) {
-    val server: String = server.trim().trimEnd('/').let { if (it.startsWith("http://") || it.startsWith("https://")) it else "http://$it" }
+    val server: String = server.trim().trimEnd('/').let { if (it.startsWith("http://", true) || it.startsWith("https://", true)) it else "http://$it" }
 
     data class Account(val status: String, val expires: Long?, val active: Int, val max: Int)
 

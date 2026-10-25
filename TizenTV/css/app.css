@@ -508,3 +508,6 @@ html.playing, body.playing, body.playing #app { background: transparent; }
 /* Rows and cards are laid out on their own (a change inside one never re-lays out the page). */
 .row, .cat, .chp-row, .ep, .grow, .poster, .hcard { contain: layout; }
 .logo img, .pimg img { image-rendering: auto; }
+
+/* Settings › Dot test: AVPlay object shrunk to 1 px (video plane keeps its own display rect). */
+html.av-test #av-player { width: 1px; height: 1px; }

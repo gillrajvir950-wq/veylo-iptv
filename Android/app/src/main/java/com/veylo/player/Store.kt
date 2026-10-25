@@ -30,12 +30,19 @@ class Store(context: Context) {
         prefs.edit().putString("providers", a.toString()).apply()
     }
 
+    private fun sameAccount(a: Provider, b: Provider): Boolean {
+        fun norm(s: String) = s.trim().trimEnd('/').lowercase()
+        return a.kind == b.kind && if (b.kind == "xtream") norm(a.server) == norm(b.server) && a.username == b.username
+            else a.playlistUrl.trim() == b.playlistUrl.trim()
+    }
+
+    /** The saved account for these login details, if any. */
+    fun matchProvider(p: Provider): Provider? = providers().firstOrNull { sameAccount(it, p) }
+
     /** Adds or updates (same server+user, or same playlist) and returns the saved copy. */
     fun saveProvider(p: Provider): Provider {
         val list = providers().toMutableList()
-        val at = list.indexOfFirst {
-            it.id == p.id || (it.kind == p.kind && if (p.kind == "xtream") it.server == p.server && it.username == p.username else it.playlistUrl == p.playlistUrl)
-        }
+        val at = list.indexOfFirst { (p.id.isNotEmpty() && it.id == p.id) || sameAccount(it, p) }
         val id = if (at >= 0) list[at].id else "p" + System.currentTimeMillis().toString(36)
         val name = p.name.ifEmpty { if (at >= 0) list[at].name else hostOf(if (p.kind == "xtream") p.server else p.playlistUrl) }
         val saved = p.copy(id = id, name = name, lastUsed = System.currentTimeMillis())

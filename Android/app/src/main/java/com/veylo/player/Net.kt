@@ -26,8 +26,14 @@ object Net {
             } catch (e: HttpError) {
                 last = e
                 if (e.code == 401 || e.code == 404) throw e
+            } catch (e: java.net.SocketTimeoutException) {
+                throw e   // slow / dead server: another identity won't help, and each try could wait a minute
+            } catch (e: java.net.UnknownHostException) {
+                throw e
+            } catch (e: java.net.ConnectException) {
+                throw e
             } catch (e: IOException) {
-                last = e
+                last = e   // e.g. connection dropped: some panels cut unknown apps off this way
             }
         }
         throw last ?: IOException("Couldn’t reach the provider.")
