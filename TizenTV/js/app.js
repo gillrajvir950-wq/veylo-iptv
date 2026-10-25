@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.2.13';
+  var VERSION = '0.2.14';
 
   // ---------- Keys ----------
   var K = {
@@ -1339,6 +1339,7 @@
             '<div class="item focusable" data-action="autoadult">Lock adult categories automatically<span class="value">' +
             (Store.autoAdult() ? 'On' : 'Off') + '</span></div>' : '') +
         '</div>' +
+        '<div class="group"><h3>CHANNELS</h3><div class="item focusable" data-action="reloadlive">Reload channel list</div></div>' +
         '<div class="group"><h3>MOVIES & SERIES</h3><div class="item focusable" data-action="refreshlib">Reload movies & series</div></div>' +
         '<div class="group"><h3>ABOUT</h3><div class="item">Version<span class="value">Veylo TV ' + VERSION + '</span></div></div>' +
       '</div><div>' +
@@ -1346,6 +1347,11 @@
           '<div class="item focusable" data-action="autostart">Start with the last channel<span class="value">' +
             (Store.autostart() ? 'On' : 'Off') + '</span></div>' +
 
+          '<div class="item focusable" data-action="aspect">Picture size<span class="value">' +
+            (Player.aspect() === 'fit' ? 'Fit (whole picture)' : 'Stretch (full screen)') + '</span></div>' +
+          '<div class="item focusable" data-action="sleep">Sleep timer<span class="value">' + Sleep.label() + '</span></div>' +
+          '<div class="item focusable" data-action="tech">Technical details<span class="value">' +
+            (Store.techDetails() ? 'Shown' : 'Hidden') + '</span></div>' +
           '<div class="item focusable" data-action="engine">Player<span class="value">' +
             (Player.engineEnabled() ? 'Veylo engine (like iPhone)' : 'Samsung player') + '</span></div>' +
           '<div class="item focusable" data-action="format">Live stream format<span class="value">' +
@@ -1415,6 +1421,20 @@
       } else if (action === 'refreshlib') {
         if (global.VeyloLibrary) global.VeyloLibrary.clearCache();
         toast('Movies & series will reload');
+      } else if (action === 'reloadlive') {
+        if (!App.session || !App.session.profile) return;
+        API.reloadNextConnect();
+        connect(App.session.profile, false);
+      } else if (action === 'aspect') {
+        Player.setAspect(Player.aspect() === 'fit' ? 'stretch' : 'fit');
+        showSettings();
+      } else if (action === 'sleep') {
+        Sleep.cycle();
+        showSettings();
+      } else if (action === 'tech') {
+        Store.setTechDetails(!Store.techDetails());
+        toast(Store.techDetails() ? 'Try lines, error details and key hints shown' : 'Technical details hidden');
+        showSettings();
       } else if (action === 'engine') {
         Player.setEngineEnabled(!Player.engineEnabled());
         toast(Player.engineEnabled() ? 'Veylo engine on — Samsung player is the backup' : 'Samsung player only');
@@ -1494,6 +1514,48 @@
   }
 
   // ---------- Player ----------
+  /** Sleep timer (RED in the player, or Settings): stops playback and closes Veylo. A TV app
+   *  can't switch the TV itself off. */
+  var Sleep = {
+    steps: [0, 30, 60, 90, 120],
+    until: 0,
+    timer: null,
+    warnTimer: null,
+    minutesLeft: function () {
+      return this.until ? Math.max(1, Math.ceil((this.until - Date.now()) / 60000)) : 0;
+    },
+    set: function (minutes) {
+      clearTimeout(this.timer);
+      clearTimeout(this.warnTimer);
+      this.until = minutes ? Date.now() + minutes * 60000 : 0;
+      if (!minutes) return;
+      var self = this;
+      this.warnTimer = setTimeout(function () {
+        toast('Sleep timer: Veylo closes in 1 minute · RED to change');
+      }, Math.max(0, minutes * 60000 - 60000));
+      this.timer = setTimeout(function () {
+        self.until = 0;
+        try { Player.stop(); } catch (e) {}
+        exitApp();
+      }, minutes * 60000);
+    },
+    /** Off → 30 → 60 → 90 → 120 → Off. */
+    cycle: function () {
+      var left = this.minutesLeft();
+      var next = 0;
+      for (var i = 0; i < this.steps.length; i++) {
+        if (this.steps[i] > left) { next = this.steps[i]; break; }
+      }
+      if (left >= 120) next = 0;
+      this.set(next);
+      toast(next ? 'Sleep timer: ' + next + ' min' : 'Sleep timer off');
+    },
+    label: function () {
+      var left = this.minutesLeft();
+      return left ? left + ' min left' : 'Off';
+    }
+  };
+
   var PlayerScreen = {
     lineup: [],
     index: 0,
@@ -1579,6 +1641,7 @@
       } else if (state === 'loading') {
         box.innerHTML = '<div class="spinner"></div>Loading…<div id="player-wait" style="font-size:22px;color:rgba(255,255,255,.55);margin-top:12px"></div>';
         var wait = function () {
+          if (!Store.techDetails()) return;   // clean screen unless Settings › Technical details
           var c = Player.current, node = document.getElementById('player-wait');
           var a = Player.attempt();
           if (!node || !c || !c.since || !a) return;
@@ -1598,7 +1661,9 @@
         // What every try did — read it off a photo of the TV.
         var c = Player.current;
         var code = '';
-        if (c && c.log && c.log.length) {
+        if (!Store.techDetails()) {
+          code = '';
+        } else if (c && c.log && c.log.length) {
           code = '<div class="attempts">' + c.log.slice(-10).map(function (l) {
             return esc(l.format + ' · ' + l.agent + ' → ' + l.result + ' (' + l.seconds + ' s)');
           }).join('<br>') + (c.uaError ? '<br>Identity not applied: ' + esc(c.uaError) : '') + '</div>';
@@ -1653,6 +1718,12 @@
     tick: function () {
       var c = document.getElementById('player-clock');
       if (c) c.textContent = clock(Date.now());
+      var s = document.getElementById('player-sleep');
+      if (s) {
+        var left = Sleep.minutesLeft();
+        s.classList.toggle('hidden', !left);
+        if (left) s.textContent = '☾ ' + left + ' min';
+      }
     },
 
     /** Channel list over the video (OK): pick another channel without leaving the player. */
@@ -1709,9 +1780,10 @@
       '<div class="player">' +
         '<div id="player-overlay">' +
           '<div class="shade-top"></div><div class="shade-bottom"></div>' +
-          '<div class="top"><span class="live-pill">● LIVE</span><span class="build">v' + VERSION + '</span><span class="clock" id="player-clock"></span></div>' +
+          '<div class="top"><span class="live-pill">● LIVE</span><span class="build">v' + VERSION + '</span>' +
+            '<span class="sleep-pill hidden" id="player-sleep"></span><span class="clock" id="player-clock"></span></div>' +
           '<div class="panel" id="player-panel"></div>' +
-          '<div class="hints">' +
+          (Store.techDetails() ? '<div class="hints">' +
             '<span><span class="key">▲▼</span>Channel</span>' +
             '<span><span class="key">OK</span>Channel list</span>' +
             '<span><span class="key">◀▶</span>Info</span>' +
@@ -1719,7 +1791,7 @@
             '<span><span class="key yellow">&nbsp;</span>Favorite</span>' +
             '<span><span class="key">⏯</span>Pause</span>' +
             '<span><span class="key">BACK</span>Back</span>' +
-          '</div>' +
+          '</div>' : '') +
         '</div>' +
         '<div class="status" id="player-status"></div>' +
         '<div class="chpanel hidden" id="chpanel"><div class="chp-head" id="chp-head"></div>' +
@@ -1789,6 +1861,15 @@
         PlayerScreen.paused = Player.togglePause();
         toast(PlayerScreen.paused ? 'Paused' : 'Playing');
         PlayerScreen.showOverlay(PlayerScreen.paused);
+        return;
+      case K.GREEN:
+        Player.setAspect(Player.aspect() === 'fit' ? 'stretch' : 'fit');
+        toast(Player.aspect() === 'fit' ? 'Picture: Fit (whole picture)' : 'Picture: Stretch (full screen)');
+        return;
+      case K.RED:
+        Sleep.cycle();
+        PlayerScreen.tick();
+        PlayerScreen.showOverlay();
         return;
       case K.YELLOW:
         toggleFavorite(PlayerScreen.lineup[PlayerScreen.index]);

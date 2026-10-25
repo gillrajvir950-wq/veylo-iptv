@@ -195,6 +195,9 @@
     lastChannel: function () { return read(scoped('veylo.tv.lastChannel'), ''); },
     setLastChannel: function (key) { write(scoped('veylo.tv.lastChannel'), key); },
     autostart: function () { return read('veylo.tv.autostart', true); },
+    /** Try lines, error try list and the player's remote hints (off = clean screen). */
+    techDetails: function () { return read('veylo.tv.tech', false); },
+    setTechDetails: function (on) { write('veylo.tv.tech', !!on); },
     setAutostart: function (on) { write('veylo.tv.autostart', !!on); },
 
     /** 'ts' (default, like the iPhone app) or 'm3u8' for Xtream live streams. */

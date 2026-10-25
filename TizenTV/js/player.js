@@ -102,6 +102,18 @@
     return s ? (s.w + 1) / (s.w + s.f + 2) : 0.5;
   }
 
+  /** Picture size: 'fit' (whole picture, black bars) or 'stretch' (fills the screen). */
+  var ASPECT_KEY = 'veylo.tv.aspect';
+  function aspect() {
+    try { return global.localStorage.getItem(ASPECT_KEY) === 'stretch' ? 'stretch' : 'fit'; } catch (e) { return 'fit'; }
+  }
+  function displayMethod() {
+    return aspect() === 'stretch' ? 'PLAYER_DISPLAY_MODE_FULL_SCREEN' : 'PLAYER_DISPLAY_MODE_LETTER_BOX';
+  }
+  function applyEngineAspect(video) {
+    if (video) video.style.objectFit = aspect() === 'stretch' ? 'fill' : 'contain';
+  }
+
   function remembered() {
     try { return JSON.parse(global.localStorage.getItem(MEMORY_KEY) || 'null'); } catch (e) { return null; }
   }
@@ -211,6 +223,13 @@
   }
 
   var Player = {
+    aspect: aspect,
+    /** Changes the picture size of the running stream at once (and for every next one). */
+    setAspect: function (mode) {
+      try { global.localStorage.setItem(ASPECT_KEY, mode === 'stretch' ? 'stretch' : 'fit'); } catch (e) {}
+      if (Player.engine && Player.engine.video) applyEngineAspect(Player.engine.video);
+      else if (hasAVPlay()) { try { global.webapis.avplay.setDisplayMethod(displayMethod()); } catch (e) { /* not open */ } }
+    },
     closeAVPlay: function () { if (hasAVPlay()) closeAVPlay(); },
     /** Called with ('loading' | 'buffering' | 'playing' | 'error' | 'retry', info). */
     onState: function () {},
@@ -283,6 +302,7 @@
         onBuffering: function () { if (live()) Player.onState('buffering'); },
         onError: function (name) { if (live()) Player.fail(name); }
       }, Player.rect ? { rect: Player.rect } : null);
+      if (Player.engine) applyEngineAspect(Player.engine.video);
     },
 
     /** Moves the picture: a box on the page (live preview) or full screen (null) — without
@@ -393,7 +413,7 @@
         }
         var r = Player.rect || { left: 0, top: 0, width: 1920, height: 1080 };
         av.setDisplayRect(Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height));
-        try { av.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX'); } catch (e) { /* older TVs */ }
+        try { av.setDisplayMethod(displayMethod()); } catch (e) { /* older TVs */ }
         av.prepareAsync(function () {
           if (!live()) return;
           try {

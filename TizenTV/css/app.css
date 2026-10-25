@@ -513,3 +513,6 @@ html.playing, body.playing, body.playing #app { background: transparent; }
    corner, the dot is gone while the video keeps its own full-screen display rect (setDisplayRect).
    User-tested as the 0.2.11 "Dot test" switch: dot gone, channels play. */
 #av-player { width: 1px; height: 1px; }
+
+/* Sleep timer pill in the player's top bar. */
+.player .top .sleep-pill { font-size: 22px; font-weight: 700; padding: 4px 14px; border-radius: 18px; background: rgba(124,92,255,0.35); color: #fff; }

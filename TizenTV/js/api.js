@@ -298,10 +298,20 @@
   Xtream.prototype.loadLive = function (format) {
     var self = this;
     var other = format === 'ts' ? 'm3u8' : 'ts';
-    return Promise.all([
-      fetchJSON(self.endpoint('get_live_streams')),
-      fetchJSON(self.endpoint('get_live_categories')).catch(function () { return []; })
-    ]).then(function (results) {
+    function download() {
+      return Promise.all([
+        fetchJSON(self.endpoint('get_live_streams')),
+        fetchJSON(self.endpoint('get_live_categories')).catch(function () { return []; })
+      ]).then(function (results) {
+        if (list(results[0]).length) {
+          savedList('live|' + self.server + '|' + self.username, { streams: list(results[0]), cats: list(results[1]) });
+        }
+        return results;
+      });
+    }
+    return fromSavedList('live|' + self.server + '|' + self.username, download, function (hit) {
+      return [hit.streams, hit.cats];
+    }).then(function (results) {
       var names = {};
       var order = [];
       list(results[1]).forEach(function (c) {
@@ -598,6 +608,41 @@
     return { channels: channels, guideURL: guide };
   }
 
+  // ---------- Instant start: the channel list saved on the TV ----------
+  // The full list (14,000+ channels) took the longest at every start. The last downloaded list
+  // (IndexedDB, via VeyloLibrary.cache) opens the app at once; a fresh copy is downloaded 20 s
+  // later in the background and used from the next start. Saved per server + user name (raw
+  // provider answers; the password is never part of the key).
+  var LIST_MAX_AGE = 7 * 86400000;
+  var REFRESH_DELAY = 20000;
+  var forceFresh = false;
+
+  function listCache() { return global.VeyloLibrary && global.VeyloLibrary.cache; }
+
+  function savedList(key, value) {
+    var cache = listCache();
+    if (!cache) return;
+    value.t = Date.now();
+    cache.put('channels|' + key, value);
+  }
+
+  /** Saved list first (refreshed in the background), else a normal download. */
+  function fromSavedList(key, download, unpack) {
+    var cache = listCache();
+    if (!cache || forceFresh) return download();
+    return cache.get('channels|' + key).then(function (hit) {
+      if (!hit || !hit.t || Date.now() - hit.t > LIST_MAX_AGE) return download();
+      var value = unpack(hit);
+      if (!value || (value.length !== undefined && !value.length)) return download();
+      // Older than 6 h: refresh in the background for the next start (not while the first
+      // channel is starting, and not at every start).
+      if (Date.now() - hit.t > 6 * 3600000) {
+        setTimeout(function () { download().catch(function () { /* next start downloads again */ }); }, REFRESH_DELAY);
+      }
+      return value;
+    }, function () { return download(); });
+  }
+
   /** `…/get.php?username=…&password=…` → Xtream login details. */
   function xtreamFromPlaylist(url) {
     var match = /^(https?:\/\/[^?#]*?)\/?get\.php\?(.*)$/i.exec(url.trim());
@@ -612,7 +657,14 @@
   }
 
   function loadM3U(url) {
-    return fetchText(url.trim(), 90000).then(function (text) {
+    var key = 'm3u|' + hash(url.trim());
+    function download() {
+      return fetchText(url.trim(), 90000).then(function (text) {
+        if (text.indexOf('#EXTINF') >= 0) savedList(key, { text: text });
+        return text;
+      });
+    }
+    return fromSavedList(key, download, function (hit) { return hit.text; }).then(function (text) {
       if (text.indexOf('#EXTINF') < 0) throw new Error('This link is not an M3U playlist.');
       var parsed = parseM3U(text, url.trim());
       if (!parsed.channels.length) throw new Error('No playable channels found in the playlist.');
@@ -650,6 +702,7 @@
       });
     }
     return job.then(function (result) {
+      forceFresh = false;
       result.channels.forEach(function (c, i) { c.index = i; });
       result.categories = buildCategories(result.channels, result.order || []);
       return result;
@@ -671,6 +724,8 @@
 
   global.VeyloAPI = {
     connect: connect,
+    /** Settings › Reload channels: the next connect downloads instead of using the saved list. */
+    reloadNextConnect: function () { forceFresh = true; },
     state: State,
     Xtream: Xtream,
     parseM3U: parseM3U,
