@@ -188,7 +188,7 @@ struct FloatingTabBar: View {
             }
         }
         .padding(3)
-        .veyloGlassCapsule()
+        .veyloGlassCapsule(liquid: true)
         .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
         .environment(\.colorScheme, .dark)
         .fixedSize()
@@ -227,7 +227,7 @@ struct FloatingTabBar: View {
             }
         }
         .padding(4)
-        .veyloGlassCapsule(interactive: false)
+        .veyloGlassCapsule(liquid: true)
         .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
         .environment(\.colorScheme, .dark)
         .padding(.horizontal, 20)
@@ -425,7 +425,7 @@ struct SettingsView: View {
             }
         }
         .padding(18)
-        .veyloGlass(in: RoundedRectangle(cornerRadius: 28, style: .continuous), tint: VeyloTheme.accent.opacity(0.12))
+        .veyloGlass(in: RoundedRectangle(cornerRadius: 28, style: .continuous), tint: VeyloTheme.accent.opacity(0.12), liquid: true)
     }
 
     private func statusPill(_ info: ProviderAccountInfo) -> some View {
@@ -564,7 +564,7 @@ struct SettingsView: View {
                 .foregroundStyle(VeyloTheme.textTertiary)
                 .padding(.horizontal, 6)
             VStack(spacing: 0) { content() }
-                .veyloGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .veyloGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous), liquid: true)
             if let footer {
                 Text(footer)
                     .font(.system(size: 12))

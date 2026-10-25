@@ -80,7 +80,7 @@ struct LoginView: View {
             connectButton
         }
         .padding(18)
-        .veyloGlass(in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .veyloGlass(in: RoundedRectangle(cornerRadius: 30, style: .continuous), liquid: true)
     }
 
     private var modePicker: some View {

@@ -7,18 +7,21 @@ extension View {
     /// The glass layer never takes touches (iOS 26 glass inside button labels was swallowing taps),
     /// and the whole shape counts as the tap area of the view it decorates.
     /// `interactive` is kept for call-site compatibility but no longer used.
-    func veyloGlass<S: InsettableShape>(in shape: S, interactive: Bool = false, tint: Color? = nil) -> some View {
+    /// `liquid`: real iOS 26 Liquid Glass. Only for large surfaces (tab bar, search fields, cards) —
+    /// on small buttons/chips iOS 26 drew the glass over the icon/title (empty circles, blank chips, 0.0.44).
+    /// Everything else uses the frosted look, which always stays behind the content.
+    func veyloGlass<S: InsettableShape>(in shape: S, interactive: Bool = false, tint: Color? = nil, liquid: Bool = false) -> some View {
         self
             .background {
-                GlassBackdrop(shape: shape, tint: tint)
+                GlassBackdrop(shape: shape, tint: tint, liquid: liquid)
                     .allowsHitTesting(false)
             }
             .contentShape(shape)
     }
 
     /// Capsule-shaped glass, the most common case.
-    func veyloGlassCapsule(interactive: Bool = false, tint: Color? = nil) -> some View {
-        veyloGlass(in: Capsule(), interactive: interactive, tint: tint)
+    func veyloGlassCapsule(interactive: Bool = false, tint: Color? = nil, liquid: Bool = false) -> some View {
+        veyloGlass(in: Capsule(), interactive: interactive, tint: tint, liquid: liquid)
     }
 
     /// Circular glass for round icon buttons.
@@ -31,10 +34,11 @@ extension View {
 private struct GlassBackdrop<S: InsettableShape>: View {
     let shape: S
     let tint: Color?
+    let liquid: Bool
 
     var body: some View {
         #if compiler(>=6.2)
-        if #available(iOS 26.0, macOS 26.0, *) {
+        if liquid, #available(iOS 26.0, macOS 26.0, *) {
             Color.clear.glassEffect(Glass.regular.tint(tint), in: shape)
         } else {
             frosted

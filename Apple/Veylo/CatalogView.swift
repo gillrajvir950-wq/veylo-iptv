@@ -269,7 +269,7 @@ struct CatalogView: View {
         }
         .padding(.horizontal, 16)
         .frame(height: 46)
-        .veyloGlassCapsule(interactive: false)
+        .veyloGlassCapsule(liquid: true)
     }
 
     // MARK: Type tabs (pinned while scrolling)
