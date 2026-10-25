@@ -22,6 +22,9 @@
   ];
   /** A try that shows no picture within this time is given up for the next identity/format. */
   var ATTEMPT_TIMEOUT = 15000;
+  /** Tries that never won on this account get less time while they show no sign of life
+   *  (Samsung's player reports buffering = connected; then the full time applies). */
+  var NEW_TRY_TIMEOUT = 10000;
   /** Reconnect pauses after a stream that was playing drops. */
   var DROP_DELAYS = [3, 6, 10];
   var MEMORY_KEY = 'veylo.tv.streamIdentity';
@@ -71,6 +74,32 @@
       if (state !== 'NONE' && state !== 'IDLE') av.stop();
     } catch (e) { /* not playing */ }
     try { av.close(); } catch (e) { /* already closed */ }
+  }
+
+  /** Wins/fails per try (identity + format) per account: {scope: {"vlc|TS": {w, f}}}. A new
+   *  channel tries first what usually works on this provider instead of the fixed order. */
+  var STATS_KEY = 'veylo.tv.tryStats';
+  function tryID(t) { return t.agent.id + '|' + t.format; }
+  function scopeOf(channelKey) { var i = (channelKey || '').indexOf('|'); return i > 0 ? channelKey.slice(0, i) : '_'; }
+  function readStats() {
+    try { return JSON.parse(global.localStorage.getItem(STATS_KEY) || '{}'); } catch (e) { return {}; }
+  }
+  function statsFor(channelKey) { return readStats()[scopeOf(channelKey)] || {}; }
+  function countTry(channelKey, t, won) {
+    try {
+      var all = readStats();
+      var scope = scopeOf(channelKey);
+      var mine = all[scope] || (all[scope] = {});
+      var s = mine[tryID(t)] || (mine[tryID(t)] = { w: 0, f: 0 });
+      if (won) s.w += 1; else s.f += 1;
+      // Recent results count more: halve old counts once they grow.
+      if (s.w + s.f > 40) { s.w = Math.round(s.w / 2); s.f = Math.round(s.f / 2); }
+      global.localStorage.setItem(STATS_KEY, JSON.stringify(all));
+    } catch (e) { /* storage blocked */ }
+  }
+  function scoreOf(stats, t) {
+    var s = stats[tryID(t)];
+    return s ? (s.w + 1) / (s.w + s.f + 2) : 0.5;
   }
 
   function remembered() {
@@ -168,6 +197,16 @@
     // Samsung's player won last time: its winning try first, then the engine, then the rest.
     if (avplayWon) plan = [samsung[0]].concat(engine, samsung.slice(1));
     else plan = plan.concat(samsung);
+    // What usually works on this provider goes first. This channel's own winner (or the
+    // first Samsung try of a 4K channel) stays in front; the rest is ordered by results.
+    var stats = statsFor(options.key);
+    if (Object.keys(stats).length) {
+      var pinned = (own || options.uhd) ? 1 : 0;
+      var head = plan.slice(0, pinned);
+      var rest = plan.slice(pinned).map(function (t, i) { return { t: t, i: i, s: scoreOf(stats, t) }; });
+      rest.sort(function (a, b) { return (b.s - a.s) || (a.i - b.i); });
+      plan = head.concat(rest.map(function (x) { return x.t; }));
+    }
     return plan;
   }
 
@@ -205,10 +244,10 @@
       current.since = Date.now();
       current.format = tryNow.format;
       Player.onState('loading');
-      clearTimeout(Player.attemptTimer);
-      Player.attemptTimer = setTimeout(function () {
-        if (Player.current === current && !current.playing) Player.fail('NO_PICTURE_' + Math.round(ATTEMPT_TIMEOUT / 1000) + 'S');
-      }, ATTEMPT_TIMEOUT);
+      // A try that never won here gets less time unless it shows a sign of life (see extendAttempt).
+      var stats = statsFor(current.key);
+      var known = (stats[tryID(tryNow)] && stats[tryID(tryNow)].w > 0) || current.step === 0;
+      Player.armAttempt(current, known ? ATTEMPT_TIMEOUT : NEW_TRY_TIMEOUT);
       if (tryNow.engine) {
         Player.openEngine(tryNow.url, tryNow.engine);
       } else if (hasAVPlay()) {
@@ -216,6 +255,23 @@
       } else {
         Player.openHTML5(tryNow.url);
       }
+    },
+
+    armAttempt: function (current, ms) {
+      clearTimeout(Player.attemptTimer);
+      current.timeoutMs = ms;
+      Player.attemptTimer = setTimeout(function () {
+        if (Player.current === current && !current.playing) Player.fail('NO_PICTURE_' + Math.round(ms / 1000) + 'S');
+      }, ms);
+    },
+
+    /** The provider answered (player is buffering): give a short-timeout try its full time. */
+    extendAttempt: function () {
+      var current = Player.current;
+      if (!current || current.playing || current.timeoutMs >= ATTEMPT_TIMEOUT) return;
+      var left = ATTEMPT_TIMEOUT - (Date.now() - current.since);
+      if (left > 0) Player.armAttempt(current, left);
+      current.timeoutMs = ATTEMPT_TIMEOUT;
     },
 
     openEngine: function (url, mode) {
@@ -258,6 +314,7 @@
         var tryNow = current.plan[current.step];
         remember({ agent: tryNow.agent.id, format: tryNow.format }, current.key, !current.uhd);
         if (tryNow.engine) forgetNoEngine(current.key);
+        countTry(current.key, tryNow, true);
         current.log.push({ format: tryNow.format, agent: tryNow.agent.label, result: 'OK', seconds: Math.round((Date.now() - current.since) / 1000) });
       }
       Player.onState('playing');
@@ -294,6 +351,7 @@
         seconds: Math.round((Date.now() - current.since) / 1000) });
       // The engine refused this stream at once (format it can't play): skip it here next time.
       if (tryNow.engine && Date.now() - current.since < 2000) markNoEngine(current.key);
+      countTry(current.key, tryNow, false);
       if (current.step + 1 < current.plan.length) {
         current.step += 1;
         // A short pause so the provider has let go of the refused try.
@@ -318,6 +376,7 @@
         av.setListener({
           onbufferingstart: function () {
             if (!live()) return;
+            Player.extendAttempt();
             Player.onState(Player.current && Player.current.playing ? 'buffering' : 'loading');
           },
           onbufferingcomplete: function () { if (live()) Player.started(); },

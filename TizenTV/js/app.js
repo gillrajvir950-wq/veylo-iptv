@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.2.12';
+  var VERSION = '0.2.13';
 
   // ---------- Keys ----------
   var K = {
