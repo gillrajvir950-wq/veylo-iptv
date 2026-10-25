@@ -24,8 +24,14 @@ struct RootView: View {
     @State private var currentProfileID: UUID?
     /// New value per successful connection, so the signed-in screens start fresh after a switch.
     @State private var sessionID = UUID()
+    /// The newest connect attempt. Older attempts that finish later are ignored, so switching
+    /// providers quickly can't show one account's channels with another account's lists.
+    @State private var connectID = UUID()
+    /// Saved provider whose automatic sign-in / switch just failed. When the user then connects
+    /// from the login screen with the same account, it becomes the active provider again.
+    @State private var retryProfileID: UUID?
 
-    private let version = "0.0.45"
+    private let version = "0.0.46"
     private var store: ProviderStore { ProviderStore.shared }
 
     var body: some View {
@@ -189,13 +195,16 @@ struct RootView: View {
             store.setActive(id)
             return
         }
-        guard staySignedIn else { return }
         let kind: ProviderProfile.Kind = mode == 0 ? .xtream : .m3u
         let trimmedServer = server.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedPlaylist = playlistURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedEPG = epgURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let host = URL(string: kind == .xtream ? trimmedServer : trimmedPlaylist)?.host ?? "Provider"
         let existing = store.matching(kind: kind, server: trimmedServer, username: username, playlistURL: trimmedPlaylist)
+        // An account the user already saved (e.g. its password was changed and typed again here)
+        // is updated, so Settings › Providers never keeps an old password.
+        guard staySignedIn || existing != nil else { return }
+        let reopen = staySignedIn || (existing != nil && existing?.id == retryProfileID)
         let profile = ProviderProfile(
             id: existing?.id ?? UUID(),
             name: existing?.name ?? host,
@@ -208,20 +217,22 @@ struct RootView: View {
         let secrets = ProviderSecrets(
             password: kind == .xtream ? password : nil,
             playlistURL: kind == .m3u ? trimmedPlaylist : nil,
-            epgURL: trimmedEPG.isEmpty ? nil : trimmedEPG
+            // Keep a guide link saved earlier when the login screen's field was left empty.
+            epgURL: trimmedEPG.isEmpty ? existing.flatMap { store.secrets(for: $0.id)?.epgURL } : trimmedEPG
         )
         if store.save(profile, secrets: secrets) {
-            store.setActive(profile.id)
+            if reopen { store.setActive(profile.id) }
             currentProfileID = profile.id
-            VeyloCredentials.deletePassword() // now kept with the saved provider
-        } else {
+            retryProfileID = nil
+            if staySignedIn { VeyloCredentials.deletePassword() } // now kept with the saved provider
+        } else if staySignedIn {
             staySignedIn = false
             errorMessage = "Login succeeded, but the provider could not be saved securely."
         }
     }
 
     /// Live channels through the Xtream API (also used for refused "get.php" playlist links).
-    @MainActor private func loadXtream(_ api: XtreamClient) async throws {
+    @MainActor private func loadXtream(_ api: XtreamClient, attempt: UUID) async throws {
         try await api.authenticate()
         let live = try await api.streams()
         guard !live.isEmpty else { throw XtreamError.invalidResponse }
@@ -243,16 +254,21 @@ struct RootView: View {
             item.epgID = channel.epg_channel_id
             return item
         }
+        guard attempt == connectID else { throw CancellationError() }
         catalog = ChannelCatalog(loaded, preferredOrder: categories.map(\.category_name))
         channels = loaded
         client = api
     }
 
     @MainActor private func connect(autoLogin: Bool = false) async {
+        let attempt = UUID()
+        connectID = attempt
         loading = true
         defer {
-            loading = false
-            if autoLogin { autoLoginInProgress = false }
+            if attempt == connectID {
+                loading = false
+                if autoLogin { autoLoginInProgress = false }
+            }
         }
         // "host:8080" or "provider.tv" typed without http:// is accepted; stray spaces in the
         // username (keyboard suggestions) are dropped. Passwords are used exactly as typed.
@@ -269,6 +285,7 @@ struct RootView: View {
             if mode == 1 {
                 do {
                     let playlist = try await M3UClient.loadPlaylist(from: playlistURL)
+                    guard attempt == connectID else { throw CancellationError() }
                     let loaded = playlist.channels.map { channel -> PlaylistChannel in
                         var keyed = channel
                         keyed.key = "m:" + Self.hashKey(channel.url.absoluteString)
@@ -278,14 +295,18 @@ struct RootView: View {
                     channels = loaded
                     client = nil
                     guideURL = guideURL ?? playlist.guideURL
+                } catch is CancellationError {
+                    throw CancellationError()
                 } catch {
                     // A refused "get.php" playlist link: the same account usually works through the Xtream API.
                     guard let login = M3UClient.xtreamLogin(from: playlistURL) else { throw error }
                     let api = XtreamClient(account: XtreamAccount(server: login.server, username: login.username, password: login.password))
                     do {
-                        try await loadXtream(api)
+                        try await loadXtream(api, attempt: attempt)
                     } catch XtreamError.unauthorized {
                         throw XtreamError.unauthorized
+                    } catch is CancellationError {
+                        throw CancellationError()
                     } catch {
                         throw PlaylistError.invalidFormat("the provider refused the playlist download, and its Xtream API didn’t answer either. Ask the provider for an Xtream login or another M3U link.")
                     }
@@ -293,18 +314,22 @@ struct RootView: View {
             } else {
                 guard let url = URL(string: server.trimmingCharacters(in: .whitespacesAndNewlines)) else { throw XtreamError.invalidServer }
                 let api = XtreamClient(account: XtreamAccount(server: url, username: username, password: password))
-                try await loadXtream(api)
+                try await loadXtream(api, attempt: attempt)
                 if rememberLogin || staySignedIn {
                     savedServer = server.trimmingCharacters(in: .whitespacesAndNewlines)
                     savedUsername = username
                 }
             }
+            guard attempt == connectID else { return }
             rememberProvider()
             if mode == 0 { password = "" }
             sessionID = UUID()
             let guide = guideURL
             Task { await XMLTVGuide.shared.load(url: guide) }
         } catch {
+            // A newer connect (provider switch) took over: drop this result silently.
+            guard attempt == connectID, !(error is CancellationError) else { return }
+            if autoLogin { retryProfileID = currentProfileID }
             if autoLogin, (error as? XtreamError) == .unauthorized {
                 // Only a rejected password stops automatic sign-in.
                 if let id = currentProfileID, store.activeID == id { store.setActive(nil) }

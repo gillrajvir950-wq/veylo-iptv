@@ -129,6 +129,11 @@ enum XtreamError: LocalizedError {
 struct XtreamClient {
     let account: XtreamAccount
 
+    /// URLQueryItem keeps "+" as is, and PHP panels read it as a space ("pass+1" → "pass 1").
+    static func encodePlus(_ query: String?) -> String? {
+        query?.replacingOccurrences(of: "+", with: "%2B")
+    }
+
     private func endpoint(action: String? = nil) throws -> URL {
         guard ["http", "https"].contains(account.server.scheme?.lowercased() ?? ""),
               var components = URLComponents(url: account.server, resolvingAgainstBaseURL: false) else {
@@ -141,12 +146,14 @@ struct XtreamClient {
                      URLQueryItem(name: "password", value: account.password)]
         if let action { query.append(URLQueryItem(name: "action", value: action)) }
         components.queryItems = query
+        components.percentEncodedQuery = XtreamClient.encodePlus(components.percentEncodedQuery)
         guard let url = components.url else { throw XtreamError.invalidServer }
         return url
     }
 
     private func fetch<T: Decodable>(_ type: T.Type, action: String? = nil) async throws -> T {
         let url = try endpoint(action: action)
+        var lastStatus = 0
         // Default identity first; some panels refuse unknown apps, so retry as common players.
         for agent in M3UClient.userAgents {
             var request = URLRequest(url: url)
@@ -158,8 +165,11 @@ struct XtreamClient {
             if (200...299).contains(http.statusCode) {
                 return try JSONDecoder().decode(T.self, from: data)
             }
+            lastStatus = http.statusCode
             if http.statusCode == 401 || http.statusCode == 404 { break }
         }
+        // 401 = the panel rejected username/password (some panels answer this instead of auth: 0).
+        if lastStatus == 401 { throw XtreamError.unauthorized }
         throw XtreamError.invalidResponse
     }
 

@@ -9,6 +9,7 @@ struct ProvidersView: View {
     @State private var adding = false
     @State private var renaming: ProviderProfile?
     @State private var newName = ""
+    @State private var confirmRemove: ProviderProfile?
 
     var body: some View {
         NavigationStack {
@@ -39,7 +40,7 @@ struct ProvidersView: View {
                                 row(profile)
                             }
                             .swipeActions(edge: .trailing) {
-                                Button(role: .destructive) { store.remove(profile.id) } label: {
+                                Button(role: .destructive) { requestRemove(profile) } label: {
                                     Label("Remove", systemImage: "trash")
                                 }
                                 Button {
@@ -55,7 +56,7 @@ struct ProvidersView: View {
                                     newName = profile.name
                                     renaming = profile
                                 } label: { Label("Rename", systemImage: "pencil") }
-                                Button(role: .destructive) { store.remove(profile.id) } label: {
+                                Button(role: .destructive) { requestRemove(profile) } label: {
                                     Label("Remove", systemImage: "trash")
                                 }
                             }
@@ -88,6 +89,16 @@ struct ProvidersView: View {
                     onSelect(profile)
                 }
             }
+            .alert("Remove the provider you’re watching?",
+                   isPresented: Binding(get: { confirmRemove != nil }, set: { if !$0 { confirmRemove = nil } })) {
+                Button("Remove", role: .destructive) {
+                    if let confirmRemove { store.remove(confirmRemove.id) }
+                    confirmRemove = nil
+                }
+                Button("Cancel", role: .cancel) { confirmRemove = nil }
+            } message: {
+                Text("Its saved login is deleted from this device. Channels stay open until you sign out or close Veylo, and the app won’t open this provider automatically anymore.")
+            }
             .alert("Rename provider", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
                 TextField("Name", text: $newName)
                 Button("Save") {
@@ -98,6 +109,15 @@ struct ProvidersView: View {
             }
         }
         .preferredColorScheme(.dark)
+    }
+
+    /// The provider in use gets a confirmation first; others are removed right away.
+    private func requestRemove(_ profile: ProviderProfile) {
+        if profile.id == store.activeID {
+            confirmRemove = profile
+        } else {
+            store.remove(profile.id)
+        }
     }
 
     private func row(_ profile: ProviderProfile) -> some View {

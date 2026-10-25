@@ -132,6 +132,23 @@ struct M3UClient {
             guard let end = remainder.firstIndex(of: "\"") else { return nil }
             return String(remainder[..<end])
         }
+        /// Name after the first comma that is not inside an attribute's quotes, so names with
+        /// commas ("Star Sports 1, Hindi") and attributes with commas both stay intact.
+        func channelName(from line: String) -> String? {
+            var inQuotes = false
+            for index in line.indices {
+                let char = line[index]
+                if char == "\"" { inQuotes.toggle() }
+                else if char == ",", !inQuotes {
+                    let name = line[line.index(after: index)...].trimmingCharacters(in: .whitespaces)
+                    return name.isEmpty ? nil : name
+                }
+            }
+            // Unbalanced quotes: fall back to the text after the last comma (old behaviour).
+            return line.split(separator: ",", omittingEmptySubsequences: false).last
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .flatMap { $0.isEmpty ? nil : $0 }
+        }
         for rawLine in text.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
             if line.hasPrefix("#EXTM3U") {
@@ -140,7 +157,7 @@ struct M3UClient {
             } else if line.hasPrefix("#EXTINF:") {
                 pendingEPGID = attribute("tvg-id", from: line).flatMap { $0.isEmpty ? nil : $0 }
                 pendingEPGName = attribute("tvg-name", from: line).flatMap { $0.isEmpty ? nil : $0 }
-                pendingName = line.split(separator: ",", omittingEmptySubsequences: false).last.map(String.init)
+                pendingName = channelName(from: line)
                 pendingCategory = attribute("group-title", from: line).flatMap { $0.isEmpty ? nil : $0 } ?? "Uncategorized"
                 pendingLogo = attribute("tvg-logo", from: line).flatMap(URL.init(string:))
             } else if !line.isEmpty && !line.hasPrefix("#") {

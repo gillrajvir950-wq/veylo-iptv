@@ -1,4 +1,4 @@
-name: Veylo 0.0.45 iOS Build
+name: Veylo 0.0.46 iOS Build
 
 on:
   push:
@@ -69,10 +69,10 @@ jobs:
           test -d "$APP"
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
-          (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/Veylo-0.0.45-unsigned.ipa" Payload)
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/Veylo-0.0.46-unsigned.ipa" Payload)
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Veylo-0.0.45-unsigned-IPA
-          path: Veylo-0.0.45-unsigned.ipa
+          name: Veylo-0.0.46-unsigned-IPA
+          path: Veylo-0.0.46-unsigned.ipa
           retention-days: 7

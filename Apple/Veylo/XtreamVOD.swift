@@ -259,6 +259,7 @@ extension XtreamClient {
                                      URLQueryItem(name: "password", value: account.password)]
         if let action { items.append(URLQueryItem(name: "action", value: action)) }
         components.queryItems = items + extra
+        components.percentEncodedQuery = XtreamClient.encodePlus(components.percentEncodedQuery)
         guard let url = components.url else { throw XtreamError.invalidServer }
         var request = URLRequest(url: url)
         request.timeoutInterval = 90
