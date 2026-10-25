@@ -509,5 +509,7 @@ html.playing, body.playing, body.playing #app { background: transparent; }
 .row, .cat, .chp-row, .ep, .grow, .poster, .hcard { contain: layout; }
 .logo img, .pimg img { image-rendering: auto; }
 
-/* Settings › Dot test: AVPlay object shrunk to 1 px (video plane keeps its own display rect). */
-html.av-test #av-player { width: 1px; height: 1px; }
+/* The AVPlay <object> draws a small dot at its centre on this TV (Q60A). Shrunk to 1 px in the
+   corner, the dot is gone while the video keeps its own full-screen display rect (setDisplayRect).
+   User-tested as the 0.2.11 "Dot test" switch: dot gone, channels play. */
+#av-player { width: 1px; height: 1px; }

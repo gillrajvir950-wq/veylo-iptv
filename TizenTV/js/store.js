@@ -195,9 +195,6 @@
     lastChannel: function () { return read(scoped('veylo.tv.lastChannel'), ''); },
     setLastChannel: function (key) { write(scoped('veylo.tv.lastChannel'), key); },
     autostart: function () { return read('veylo.tv.autostart', true); },
-    /** Test switch for the dot over the video: shrinks the AVPlay <object> to 1 px in the corner. */
-    avTest: function () { return read('veylo.tv.avTest', false); },
-    setAVTest: function (on) { write('veylo.tv.avTest', !!on); },
     setAutostart: function (on) { write('veylo.tv.autostart', !!on); },
 
     /** 'ts' (default, like the iPhone app) or 'm3u8' for Xtream live streams. */

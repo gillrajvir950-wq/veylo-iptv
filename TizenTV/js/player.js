@@ -29,6 +29,50 @@
   var CHANNEL_KEY = 'veylo.tv.channelTry';
   var CHANNEL_LIMIT = 400;
 
+  /** Channels where the Veylo engine failed at once (not H.264, e.g. HEVC): {key: time}. They
+   *  go straight to Samsung's player for a week. */
+  var NO_ENGINE_KEY = 'veylo.tv.noEngine';
+  var NO_ENGINE_DAYS = 7;
+  function noEngineMap() {
+    try { return JSON.parse(global.localStorage.getItem(NO_ENGINE_KEY) || '{}'); } catch (e) { return {}; }
+  }
+  function engineSkipped(channelKey) {
+    if (!channelKey) return false;
+    var at = noEngineMap()[channelKey];
+    return !!at && Date.now() - at < NO_ENGINE_DAYS * 86400000;
+  }
+  function markNoEngine(channelKey) {
+    if (!channelKey) return;
+    try {
+      var map = noEngineMap();
+      delete map[channelKey];
+      map[channelKey] = Date.now();
+      var keys = Object.keys(map);
+      while (keys.length > CHANNEL_LIMIT) delete map[keys.shift()];
+      global.localStorage.setItem(NO_ENGINE_KEY, JSON.stringify(map));
+    } catch (e) { /* storage blocked */ }
+  }
+  function forgetNoEngine(channelKey) {
+    try {
+      var map = noEngineMap();
+      if (!map[channelKey]) return;
+      delete map[channelKey];
+      global.localStorage.setItem(NO_ENGINE_KEY, JSON.stringify(map));
+    } catch (e) { /* storage blocked */ }
+  }
+
+  /** Closes Samsung's player completely. stop() and close() are tried separately: when stop()
+   *  threw, close() used to be skipped, the player stayed open and every next try failed at once
+   *  with InvalidAccessError. */
+  function closeAVPlay() {
+    var av = global.webapis.avplay;
+    try {
+      var state = av.getState();
+      if (state !== 'NONE' && state !== 'IDLE') av.stop();
+    } catch (e) { /* not playing */ }
+    try { av.close(); } catch (e) { /* already closed */ }
+  }
+
   function remembered() {
     try { return JSON.parse(global.localStorage.getItem(MEMORY_KEY) || 'null'); } catch (e) { return null; }
   }
@@ -102,7 +146,7 @@
     var memory = own || remembered();
     var agents = AGENTS.slice();
     var plan = [];
-    var engine = engineTries(url, altURL, memory);
+    var engine = engineSkipped(options.key) ? [] : engineTries(url, altURL, memory);
     // 4K channels are usually HEVC, which the engine can't play: Samsung's player first.
     // Samsung's player goes first only when it won on this very channel (or for 4K); one
     // Samsung win elsewhere no longer slows every other channel down.
@@ -128,6 +172,7 @@
   }
 
   var Player = {
+    closeAVPlay: function () { if (hasAVPlay()) closeAVPlay(); },
     /** Called with ('loading' | 'buffering' | 'playing' | 'error' | 'retry', info). */
     onState: function () {},
     current: null,
@@ -212,6 +257,7 @@
         current.playingSince = Date.now();
         var tryNow = current.plan[current.step];
         remember({ agent: tryNow.agent.id, format: tryNow.format }, current.key, !current.uhd);
+        if (tryNow.engine) forgetNoEngine(current.key);
         current.log.push({ format: tryNow.format, agent: tryNow.agent.label, result: 'OK', seconds: Math.round((Date.now() - current.since) / 1000) });
       }
       Player.onState('playing');
@@ -246,6 +292,8 @@
 
       current.log.push({ format: tryNow.format, agent: tryNow.agent.label, result: Player.lastError,
         seconds: Math.round((Date.now() - current.since) / 1000) });
+      // The engine refused this stream at once (format it can't play): skip it here next time.
+      if (tryNow.engine && Date.now() - current.since < 2000) markNoEngine(current.key);
       if (current.step + 1 < current.plan.length) {
         current.step += 1;
         // A short pause so the provider has let go of the refused try.
@@ -264,6 +312,7 @@
       Player.gen = (Player.gen || 0) + 1;
       var gen = Player.gen;
       function live() { return gen === Player.gen; }
+      closeAVPlay();   // a leftover open player makes open() throw InvalidAccessError
       try {
         av.open(url);
         av.setListener({
@@ -351,12 +400,7 @@
         Player.engine = null;
       }
       if (hasAVPlay()) {
-        try {
-          var av = global.webapis.avplay;
-          var state = av.getState();
-          if (state !== 'NONE' && state !== 'IDLE') av.stop();
-          av.close();
-        } catch (e) { /* already closed */ }
+        closeAVPlay();
       } else {
         var video = document.getElementById('html5-video');
         if (video) {

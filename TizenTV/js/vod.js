@@ -707,6 +707,7 @@
     V.tryTimer = setTimeout(function () { if (live() && V.state === 'loading') fail('NO_PICTURE_25S'); }, 25000);
     if (!hasAVPlay()) return openHTML5(live);
     var av = global.webapis.avplay;
+    try { av.close(); } catch (e) { /* nothing open */ }
     try {
       av.open(V.media.url);
       av.setListener({
@@ -802,12 +803,13 @@
   function stopAV() {
     V.gen = (V.gen || 0) + 1;
     if (hasAVPlay()) {
+      // stop() and close() separately: a throwing stop() must not leave the player open.
+      var av = global.webapis.avplay;
       try {
-        var av = global.webapis.avplay;
         var state = av.getState();
         if (state !== 'NONE' && state !== 'IDLE') av.stop();
-        av.close();
       } catch (e) {}
+      try { av.close(); } catch (e) {}
     } else {
       var video = document.getElementById('html5-video');
       if (video) {

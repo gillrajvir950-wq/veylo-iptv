@@ -6,7 +6,7 @@
   var Store = global.VeyloStore;
   var API = global.VeyloAPI;
   var Player = global.VeyloPlayer;
-  var VERSION = '0.2.11';
+  var VERSION = '0.2.12';
 
   // ---------- Keys ----------
   var K = {
@@ -1345,8 +1345,6 @@
         '<div class="group"><h3>PLAYBACK</h3>' +
           '<div class="item focusable" data-action="autostart">Start with the last channel<span class="value">' +
             (Store.autostart() ? 'On' : 'Off') + '</span></div>' +
-          '<div class="item focusable" data-action="avtest">Dot test (small video object)<span class="value">' +
-            (Store.avTest() ? 'On' : 'Off') + '</span></div>' +
 
           '<div class="item focusable" data-action="engine">Player<span class="value">' +
             (Player.engineEnabled() ? 'Veylo engine (like iPhone)' : 'Samsung player') + '</span></div>' +
@@ -1413,11 +1411,7 @@
       } else if (action === 'autostart') {
         Store.setAutostart(!Store.autostart());
         showSettings();
-      } else if (action === 'avtest') {
-        Store.setAVTest(!Store.avTest());
-        applyAVTest();
-        toast(Store.avTest() ? 'Dot test on — play a channel and check the centre' : 'Dot test off');
-        showSettings();
+
       } else if (action === 'refreshlib') {
         if (global.VeyloLibrary) global.VeyloLibrary.clearCache();
         toast('Movies & series will reload');
@@ -1821,16 +1815,9 @@
       });
     }
     if (global.VeyloEngine && global.VeyloEngine.cleanupTemp) global.VeyloEngine.cleanupTemp();
-    applyAVTest();
     var active = Store.active();
     if (active) connect(active, true, null, 3, true);
     else showLogin();
-  }
-
-  /** Dot test: the AVPlay <object> shrinks to 1 px in the corner (the video itself keeps its
-   *  full-screen display rect). If the dot disappears, the object was drawing it. */
-  function applyAVTest() {
-    document.documentElement.classList.toggle('av-test', !!Store.avTest());
   }
 
   global.VeyloApp = { start: start, version: VERSION };
